@@ -623,7 +623,7 @@ function renderFullEvents() {
         const identityStr = (ev.signerName && ev.signerName !== "Unknown") ? ev.signerName : ev.signerAddress;
         
         html += `
-            <div style="display: grid; grid-template-columns: 2fr 3fr 1.5fr 2fr 1fr; gap: 15px; padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.05); align-items: center;">
+            <div class="event-list-item">
                 <div>
                     <a href="#block/${ev.block}" class="item-link" style="display: block; font-size: 15px; margin-bottom: 5px;">${ev.block}</a>
                     <a href="#tx/${ev.block}/${ev.hash}" class="item-link" style="font-size: 13px; color: var(--brand-secondary); opacity: 0.8;">tx: ${shortHash}</a>
