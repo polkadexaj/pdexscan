@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Polkadex Scan - Polkadex Blockchain Explorer & Analytics</title>
+    <title>Polkadex Mainnet Explorer</title>
     <meta name="description" content="Blocks, extrinsics, events, transactions, accounts, validators, staking, and real‑time analytics for the Polkadex network.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -19,14 +19,14 @@
         <!-- Sidebar Navigation -->
         <aside class="sidebar">
             <div class="sidebar-header">
-                <div class="logo">
+                <a href="#home" class="logo" style="text-decoration: none; display: flex; align-items: center; gap: 12px; color: var(--text-primary);">
                     <img src="logo.png" alt="Polkadex Logo" class="logo-img" style="width: 32px; height: 32px; border-radius: 50%;">
-                    <span class="logo-text">Polkadex Scan</span>
-                </div>
+                    <span class="logo-text" style="font-size: 1.1rem;">Polkadex Mainnet Explorer</span>
+                </a>
                 <button class="mobile-toggle sidebar-close" onclick="document.getElementById('sidebar').classList.remove('open')"><i class='bx bx-x'></i></button>
             </div>
             <nav class="sidebar-nav">
-                <a href="#" class="nav-item active" data-target="home"><i class='bx bx-grid-alt'></i> Home</a>
+                <a href="#home" class="nav-item active" data-target="home"><i class='bx bx-grid-alt'></i> Home</a>
                 <a href="#holders" class="nav-item" data-target="holders"><i class='bx bx-user-pin'></i> Top Holders</a>
                 <a href="#transactions" class="nav-item" data-target="transactions"><i class='bx bx-transfer'></i> Transactions</a>
                 <a href="#blocks" class="nav-item" data-target="blocks"><i class='bx bx-cube'></i> Blocks</a>
@@ -49,10 +49,10 @@
                     <button class="mobile-toggle" onclick="document.getElementById('sidebar').classList.add('open')">
                         <i class='bx bx-menu'></i>
                     </button>
-                    <div class="logo" style="font-size: 1.2rem; gap: 8px;">
+                    <a href="#home" class="logo" style="text-decoration: none; display: flex; align-items: center; gap: 8px; font-weight: bold; color: white;">
                         <img src="logo.png" alt="Polkadex Logo" style="width: 24px; height: 24px; border-radius: 50%;">
-                        <span>Polkadex Scan</span>
-                    </div>
+                        <span>Polkadex Mainnet Explorer</span>
+                    </a>
                 </div>
                 <div class="search-container">
                     <i class='bx bx-search'></i>
