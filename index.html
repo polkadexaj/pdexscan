@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Polkadex Scan - Polkadex Blockchain Explorer & Analytics</title>
+    <meta name="description" content="Blocks, extrinsics, events, transactions, accounts, validators, staking, and real‑time analytics for the Polkadex network.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <!-- Boxicons for modern icons -->
+    <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
+    <link rel="icon" type="image/png" href="favicon.png">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <img src="logo.png" alt="Polkadex Logo" class="logo-img" style="width: 32px; height: 32px; border-radius: 50%;">
+                    <span class="logo-text">Polkadex Scan</span>
+                </div>
+                <button class="mobile-toggle"><i class='bx bx-menu'></i></button>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" data-target="home"><i class='bx bx-grid-alt'></i> Home</a>
+                <a href="#holders" class="nav-item" data-target="holders"><i class='bx bx-user-pin'></i> Top Holders</a>
+                <a href="#transactions" class="nav-item" data-target="transactions"><i class='bx bx-transfer'></i> Transactions</a>
+                <a href="#blocks" class="nav-item" data-target="blocks"><i class='bx bx-cube'></i> Blocks</a>
+                <a href="#events" class="nav-item" data-target="events"><i class='bx bx-calendar-event'></i> Events</a>
+                <a href="#validators" class="nav-item" data-target="validators"><i class='bx bx-check-shield'></i> Validators <span class="badge">NEW</span></a>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="price-ticker">
+                    <span class="label">PDEX Price</span>
+                    <span class="value">$1.24 <span class="change positive">+2.4%</span></span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="topbar">
+                <div class="search-container">
+                    <i class='bx bx-search'></i>
+                    <input type="text" id="search-input" placeholder="Search by Block / Extrinsic / Account / Hash">
+                </div>
+                <div class="network-status">
+                    <div class="status-indicator live"></div>
+                    <span>Polkadex Mainnet</span>
+                </div>
+            </header>
+
+            <!-- Dashboard Content -->
+            <div class="dashboard page-section" data-page="home">
+                <!-- Top Stats Grid -->
+                <section class="stats-grid">
+                    <div class="stat-card glass">
+                        <div class="stat-icon"><i class='bx bx-dollar-circle'></i></div>
+                        <div class="stat-info">
+                            <h3>Market Cap</h3>
+                            <p class="stat-value">$28,729,029</p>
+                        </div>
+                    </div>
+                    <div class="stat-card glass">
+                        <div class="stat-icon"><i class='bx bx-coin-stack'></i></div>
+                        <div class="stat-info">
+                            <h3>Total Issuance</h3>
+                            <p class="stat-value">23,168,572 <span class="unit">PDEX</span></p>
+                        </div>
+                    </div>
+                    <div class="stat-card glass">
+                        <div class="stat-icon"><i class='bx bx-lock-alt'></i></div>
+                        <div class="stat-info">
+                            <h3>In Stake</h3>
+                            <p class="stat-value">7,177,107 <span class="unit">PDEX</span> <span class="badge small">30%</span></p>
+                        </div>
+                    </div>
+                    <div class="stat-card glass">
+                        <div class="stat-icon"><i class='bx bx-trending-up'></i></div>
+                        <div class="stat-info">
+                            <h3>AVG APY</h3>
+                            <p class="stat-value highlight">23.09%</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Additional Network Info -->
+                <section class="network-info-bar glass">
+                    <div class="info-item">
+                        <span class="label">Current Era</span>
+                        <span class="value">1679</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="label">Validators</span>
+                        <span class="value">200 / 237</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="label">Nominators</span>
+                        <span class="value">1728 / 2442</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="label">Max Active Stake</span>
+                        <span class="value">271,211 <span class="unit">PDEX</span></span>
+                    </div>
+                </section>
+
+                <!-- Lists Area -->
+                <section class="lists-grid">
+                    <!-- Recent Blocks -->
+                    <div class="list-container glass">
+                        <div class="list-header">
+                            <h2>Recent Blocks</h2>
+                            <a href="#blocks" class="view-all">View All</a>
+                        </div>
+                        <div class="list-content" id="blocks-list">
+                            <!-- Blocks populated by JS -->
+                        </div>
+                    </div>
+
+                    <!-- Recent Transactions -->
+                    <div class="list-container glass">
+                        <div class="list-header">
+                            <h2>Recent Transactions</h2>
+                            <a href="#" class="view-all">View all <i class='bx bx-right-arrow-alt'></i></a>
+                        </div>
+                        <div class="list-content" id="transactions-list">
+                            <!-- Transactions populated by JS -->
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Validators Page -->
+            <div class="validators-page page-section" data-page="validators" style="display: none;">
+                <div class="list-container glass">
+                    <div class="list-header">
+                        <h2>Active Validators</h2>
+                        <span class="validator-count">Loading...</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="validators-table">
+                            <thead>
+                                <tr>
+                                    <th>Address</th>
+                                    <th class="sortable" data-sort="name">Identity <i class='bx bx-sort'></i></th>
+                                    <th>Total Stake</th>
+                                    <th class="sortable" data-sort="commission">Commission <i class='bx bx-sort'></i></th>
+                                    <th class="sortable" data-sort="avg30DayApy">Real APY (30d) <i class='bx bx-sort'></i></th>
+                                    <th>Now vs Real</th>
+                                </tr>
+                            </thead>
+                            <tbody id="validators-list">
+                                <tr><td colspan="6" style="text-align:center; padding: 20px;">Fetching validators from indexer...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div style="text-align: center; padding: 20px;">
+                        <button id="show-more-btn" class="glass" style="padding: 10px 20px; color: var(--text-primary); border: 1px solid var(--border-color); background: rgba(255,255,255,0.05); border-radius: var(--radius-sm); cursor: pointer; display: none; transition: var(--transition-fast);">Show More</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Holders Page -->
+            <div class="holders-page page-section" data-page="holders" style="display: none;">
+                <div class="list-container glass">
+                    <div class="list-header">
+                        <h2>Top Token Holders</h2>
+                        <span class="holder-count">Loading...</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="holders-table validators-table">
+                            <thead>
+                                <tr>
+                                    <th>Rank</th>
+                                    <th>Address</th>
+                                    <th>Identity</th>
+                                    <th>Balance</th>
+                                    <th>Percentage</th>
+                                </tr>
+                            </thead>
+                            <tbody id="holders-list">
+                                <tr><td colspan="5" style="text-align:center; padding: 20px;">Fetching holders from indexer...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div style="text-align: center; padding: 20px;">
+                        <button id="show-more-holders-btn" class="glass" style="padding: 10px 20px; color: var(--text-primary); border: 1px solid var(--border-color); background: rgba(255,255,255,0.05); border-radius: var(--radius-sm); cursor: pointer; display: none; transition: var(--transition-fast);">Show More</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Transactions Page -->
+            <div class="transactions-page page-section" data-page="transactions" style="display: none;">
+                <div class="list-container glass">
+                    <div class="list-header">
+                        <h2>Transactions History</h2>
+                        <span class="tx-count">Loading...</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="transactions-table validators-table">
+                            <thead>
+                                <tr>
+                                    <th>Txn Hash</th>
+                                    <th>From</th>
+                                    <th>To</th>
+                                    <th class="sortable-tx" data-sort="timestamp">Date <i class='bx bx-sort'></i></th>
+                                    <th>Block</th>
+                                    <th class="sortable-tx" data-sort="numericAmount">Amount <i class='bx bx-sort'></i></th>
+                                    <th>Value</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="full-transactions-list">
+                                <tr><td colspan="8" style="text-align:center; padding: 20px;">Fetching transactions...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div style="text-align: center; padding: 20px;">
+                        <button id="show-more-tx-btn" class="glass" style="padding: 10px 20px; color: var(--text-primary); border: 1px solid var(--border-color); background: rgba(255,255,255,0.05); border-radius: var(--radius-sm); cursor: pointer; display: none; transition: var(--transition-fast);">Show More</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Blocks Page -->
+            <div class="blocks-page page-section" data-page="blocks" style="display: none;">
+                <div class="list-container glass">
+                    <div class="list-header">
+                        <h2>Blocks History</h2>
+                        <span class="block-count">Loading...</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="blocks-table validators-table">
+                            <thead>
+                                <tr>
+                                    <th>Block Number</th>
+                                    <th>Time Elapsed</th>
+                                    <th>Author</th>
+                                    <th>Extrinsics</th>
+                                    <th>Events</th>
+                                    <th>Hash</th>
+                                    <th>Date</th>
+                                </tr>
+                            </thead>
+                            <tbody id="full-blocks-list">
+                                <tr><td colspan="7" style="text-align:center; padding: 20px;">Fetching blocks...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div style="text-align: center; padding: 20px;">
+                        <button id="show-more-blocks-btn" class="glass" style="padding: 10px 20px; color: var(--text-primary); border: 1px solid var(--border-color); background: rgba(255,255,255,0.05); border-radius: var(--radius-sm); cursor: pointer; display: none; transition: var(--transition-fast);">Show More</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Events Page -->
+            <div class="events-page page-section" data-page="events" style="display: none;">
+                <div class="list-container glass" style="padding: 0;">
+                    <div class="list-header" style="border-bottom: 1px solid var(--border-color); padding: 20px;">
+                        <h2>Polkadex Events (excl transactions)</h2>
+                        <span class="event-count">Loading...</span>
+                    </div>
+                    <div id="full-events-list">
+                        <!-- Custom layout populated by JS -->
+                        <div style="text-align:center; padding: 20px;">Fetching events...</div>
+                    </div>
+                    <div style="text-align: center; padding: 20px; border-top: 1px solid var(--border-color);">
+                        <button id="show-more-events-btn" class="glass" style="padding: 10px 20px; color: var(--text-primary); border: 1px solid var(--border-color); background: rgba(255,255,255,0.05); border-radius: var(--radius-sm); cursor: pointer; display: none; transition: var(--transition-fast);">Show More</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Search Page -->
+            <div class="search-page page-section" data-page="search" style="display: none;">
+                <div class="list-container glass">
+                    <div class="list-header" style="border-bottom: 1px solid var(--border-color); padding: 20px;">
+                        <h2>Search Results for: <span id="search-query-display" style="color: var(--brand-primary);"></span></h2>
+                    </div>
+                    <div id="search-results-container" style="padding: 20px;">
+                        <!-- Results dynamically injected here -->
+                    </div>
+                    <div style="text-align: center; padding: 20px; border-top: 1px solid var(--border-color);">
+                        <button id="deep-search-btn" class="glass" style="padding: 10px 20px; color: var(--text-primary); border: 1px solid var(--brand-primary); background: rgba(229,0,122,0.1); border-radius: var(--radius-sm); cursor: pointer; transition: var(--transition-fast);">Deep Search Network</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Account Details Page -->
+            <div class="account-details-page page-section" data-page="account-details" style="display: none;">
+                <div class="list-container glass" id="account-details-container">
+                    <div style="text-align:center; padding: 20px;">Fetching account details...</div>
+                </div>
+            </div>
+
+            <!-- Block Details Page -->
+            <div class="block-details-page page-section" data-page="block-details" style="display: none;">
+                <div class="list-container glass" id="block-details-container">
+                    <div style="text-align:center; padding: 20px;">Fetching block details...</div>
+                </div>
+            </div>
+
+            <!-- Transaction Details Page -->
+            <div class="tx-details-page page-section" data-page="tx-details" style="display: none;">
+                <div class="list-container glass" id="tx-details-container">
+                    <div style="text-align:center; padding: 20px;">Fetching transaction details...</div>
+                </div>
+            </div>
+
+            <!-- Validator Details Page -->
+            <div class="validator-details-page page-section" data-page="validator-details" style="display: none;">
+                <div class="list-container glass" id="validator-details-container">
+                    <div style="text-align:center; padding: 20px;">Fetching validator history...</div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+    <script type="module" src="script.js"></script>
+</body>
+</html>
