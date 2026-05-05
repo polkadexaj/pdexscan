@@ -23,7 +23,7 @@
                     <img src="logo.png" alt="Polkadex Logo" class="logo-img" style="width: 32px; height: 32px; border-radius: 50%;">
                     <span class="logo-text">Polkadex Scan</span>
                 </div>
-                <button class="mobile-toggle"><i class='bx bx-menu'></i></button>
+                <button class="mobile-toggle sidebar-close" onclick="document.getElementById('sidebar').classList.remove('open')"><i class='bx bx-x'></i></button>
             </div>
             <nav class="sidebar-nav">
                 <a href="#" class="nav-item active" data-target="home"><i class='bx bx-grid-alt'></i> Home</a>
@@ -45,13 +45,22 @@
         <main class="main-content">
             <!-- Header -->
             <header class="topbar">
+                <div class="mobile-top-bar" style="display: none; align-items: center; gap: 16px;">
+                    <button class="mobile-toggle" onclick="document.getElementById('sidebar').classList.add('open')">
+                        <i class='bx bx-menu'></i>
+                    </button>
+                    <div class="logo" style="font-size: 1.2rem; gap: 8px;">
+                        <img src="logo.png" alt="Polkadex Logo" style="width: 24px; height: 24px; border-radius: 50%;">
+                        <span>Polkadex Scan</span>
+                    </div>
+                </div>
                 <div class="search-container">
                     <i class='bx bx-search'></i>
                     <input type="text" id="search-input" placeholder="Search by Block / Extrinsic / Account / Hash">
                 </div>
                 <div class="network-status">
                     <div class="status-indicator live"></div>
-                    <span>Polkadex Mainnet</span>
+                    <span class="status-text">Polkadex Mainnet</span>
                 </div>
             </header>
 
