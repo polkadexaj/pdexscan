@@ -112,7 +112,7 @@ async function init() {
 
     // Initialize Routing based on hash
     let hash = window.location.hash.substring(1);
-    routeTo(hash || 'dashboard');
+    routeTo(hash || 'home');
 }
 
 async function fetchNetworkStats(api) {
