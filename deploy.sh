@@ -55,8 +55,19 @@ else
     cd $REPO_DIR
 fi
 
+# 4.5 Ensure .env exists
+if [ ! -f .env ]; then
+    echo "--> .env file not found. Copying from .env.example..."
+    cp .env.example .env
+    echo "PLEASE EDIT .env file with your actual domain and email if different, then re-run deploy.sh."
+fi
+
 # 5. Build and deploy Docker containers
-echo "--> Building and starting Docker containers..."
+echo "--> Initializing Let's Encrypt certificates..."
+chmod +x init-letsencrypt.sh
+./init-letsencrypt.sh
+
+echo "--> Building and starting full Docker stack..."
 sudo docker-compose down || true
 sudo docker-compose up -d --build
 
@@ -67,7 +78,6 @@ sudo docker image prune -f
 echo "========================================"
 echo " Deployment Complete!"
 echo "========================================"
-echo "The application is now running."
-echo "Frontend is accessible on port 80."
+echo "The application is now running securely on HTTPS!"
 echo "You can check the backend logs using:"
 echo "  sudo docker logs pdexplorer-backend -f"
