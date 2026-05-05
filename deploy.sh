@@ -92,9 +92,11 @@ echo "--> Initializing Let's Encrypt certificates..."
 chmod +x init-letsencrypt.sh
 ./init-letsencrypt.sh
 
+DC=$(command -v docker-compose || echo "docker-compose")
+
 echo "--> Building and starting full Docker stack..."
-sudo docker-compose down || true
-sudo docker-compose up -d --build
+sudo $DC down || true
+sudo $DC up -d --build
 
 # 6. Cleanup unused docker images
 echo "--> Cleaning up dangling images to save space..."

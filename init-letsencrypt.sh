@@ -29,10 +29,12 @@ if [ ! -e "$data_path/conf/options-ssl-nginx.conf" ] || [ ! -e "$data_path/conf/
   echo
 fi
 
+DC=$(command -v docker-compose || echo "docker-compose")
+
 echo "### Creating dummy certificate for $domains ..."
 path="/etc/letsencrypt/live/$domains"
 mkdir -p "$data_path/conf/live/$domains"
-sudo docker-compose run --rm --entrypoint "\
+sudo $DC run --rm --entrypoint "\
   openssl req -x509 -nodes -newkey rsa:$rsa_key_size -days 1\
     -keyout '$path/privkey.pem' \
     -out '$path/fullchain.pem' \
@@ -41,11 +43,11 @@ echo
 
 
 echo "### Starting nginx ..."
-sudo docker-compose up --force-recreate -d frontend
+sudo $DC up --force-recreate -d frontend
 echo
 
 echo "### Deleting dummy certificate for $domains ..."
-sudo docker-compose run --rm --entrypoint "\
+sudo $DC run --rm --entrypoint "\
   rm -Rf /etc/letsencrypt/live/$domains && \
   rm -Rf /etc/letsencrypt/archive/$domains && \
   rm -Rf /etc/letsencrypt/renewal/$domains.conf" certbot
@@ -68,7 +70,7 @@ esac
 # Enable staging mode if needed
 if [ $staging != "0" ]; then staging_arg="--staging"; fi
 
-sudo docker-compose run --rm --entrypoint "\
+sudo $DC run --rm --entrypoint "\
   certbot certonly --webroot -w /var/www/certbot \
     $staging_arg \
     $email_arg \
@@ -79,4 +81,4 @@ sudo docker-compose run --rm --entrypoint "\
 echo
 
 echo "### Reloading nginx ..."
-sudo docker-compose exec frontend nginx -s reload
+sudo $DC exec frontend nginx -s reload
