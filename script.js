@@ -4,13 +4,13 @@ import { ApiPromise, WsProvider } from '@polkadot/api';
 function timeAgo(timestamp) {
     const seconds = Math.floor((Date.now() - timestamp) / 1000);
     if (seconds < 60) return `${seconds} secs ago`;
-    if (seconds < 3600) return `${Math.floor(seconds/60)} mins ago`;
-    return `${Math.floor(seconds/3600)} hrs ago`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)} mins ago`;
+    return `${Math.floor(seconds / 3600)} hrs ago`;
 }
 
 // Format PDEX balances (12 decimals)
 function formatPDEX(balance) {
-    return (Number(balance) / 10**12).toLocaleString('en-US', { maximumFractionDigits: 2 });
+    return (Number(balance) / 10 ** 12).toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
 // DOM Elements
@@ -81,8 +81,8 @@ async function init() {
         // Fetch initial dashboard data so it isn't empty on load
         try {
             const [txRes, bRes] = await Promise.all([
-                fetch('/api/transactions').catch(()=>null),
-                fetch('/api/blocks').catch(()=>null)
+                fetch('/api/transactions').catch(() => null),
+                fetch('/api/blocks').catch(() => null)
             ]);
             if (txRes) {
                 const txData = await txRes.json();
@@ -98,7 +98,7 @@ async function init() {
                     if (window.location.hash === '' || window.location.hash === '#dashboard') renderBlocks();
                 }
             }
-        } catch(e) {}
+        } catch (e) { }
 
         // Subscribe to new blocks
         subscribeNewBlocks(globalApi);
@@ -140,77 +140,77 @@ function subscribeNewBlocks(api) {
     api.rpc.chain.subscribeNewHeads(async (header) => {
         const blockNumber = header.number.toNumber();
         const blockHash = header.hash.toHex();
-        
+
         const newBlock = {
             number: blockNumber,
             hash: blockHash,
-            extrinsics: "-", 
+            extrinsics: "-",
             timestamp: Date.now()
         };
 
         // Fetch the full block to get extrinsics count and transactions
         api.rpc.chain.getBlock(blockHash).then(signedBlock => {
-             newBlock.extrinsics = signedBlock.block.extrinsics.length;
-             renderBlocks(); // re-render when we have the count
-             
-             // Extract transactions
-             signedBlock.block.extrinsics.forEach((ex) => {
-                 if (ex.isSigned) {
-                     const tx = {
-                         hash: ex.hash.toHex(),
-                         from: ex.signer.toString(),
-                         to: ex.method.args[0] ? ex.method.args[0].toString() : "System",
-                         block: blockNumber,
-                         amount: "Tx",
-                         numericAmount: 0,
-                         value: '0$',
-                         status: 'success',
-                         timestamp: Date.now()
-                     };
-                     transactions.unshift(tx);
-                     if (currentTxSort.field === null) sortTransactions(); // Keeps it sorted if needed
-                     if (transactions.length > 500) transactions.pop();
-                 }
-             });
-             renderTransactions();
-             if (document.querySelector('.transactions-page').style.display === 'flex') {
-                 renderFullTransactions();
-             }
+            newBlock.extrinsics = signedBlock.block.extrinsics.length;
+            renderBlocks(); // re-render when we have the count
 
-             let author = "System";
-             const digest = signedBlock.block.header.digest;
-             const preRuntime = digest.logs.find(l => l.isPreRuntime);
-             if (preRuntime) {
-                 author = "Validator " + String(preRuntime.value.toHex()).substring(0,8);
-             }
+            // Extract transactions
+            signedBlock.block.extrinsics.forEach((ex) => {
+                if (ex.isSigned) {
+                    const tx = {
+                        hash: ex.hash.toHex(),
+                        from: ex.signer.toString(),
+                        to: ex.method.args[0] ? ex.method.args[0].toString() : "System",
+                        block: blockNumber,
+                        amount: "Tx",
+                        numericAmount: 0,
+                        value: '0$',
+                        status: 'success',
+                        timestamp: Date.now()
+                    };
+                    transactions.unshift(tx);
+                    if (currentTxSort.field === null) sortTransactions(); // Keeps it sorted if needed
+                    if (transactions.length > 500) transactions.pop();
+                }
+            });
+            renderTransactions();
+            if (document.querySelector('.transactions-page').style.display === 'flex') {
+                renderFullTransactions();
+            }
 
-             const newBlock = {
-                 number: blockNumber,
-                 hash: signedBlock.block.header.hash.toHex(),
-                 author: author,
-                 timestamp: Date.now(),
-                 extrinsics: signedBlock.block.extrinsics.length,
-                 events: events.length
-             };
-             
-             blocks.unshift(newBlock);
-             if (blocks.length > 10) blocks.pop();
-             renderBlocks();
+            let author = "System";
+            const digest = signedBlock.block.header.digest;
+            const preRuntime = digest.logs.find(l => l.isPreRuntime);
+            if (preRuntime) {
+                author = "Validator " + String(preRuntime.value.toHex()).substring(0, 8);
+            }
 
-             const newFullBlock = {
-                 number: blockNumber,
-                 hash: signedBlock.block.header.hash.toHex(),
-                 authorAddress: author,
-                 authorName: author, 
-                 extrinsicsCount: signedBlock.block.extrinsics.length,
-                 eventsCount: events.length,
-                 timestamp: Date.now()
-             };
-             fullBlocks.unshift(newFullBlock);
-             if (fullBlocks.length > 200) fullBlocks.pop();
-             if (document.querySelector('.blocks-page').style.display === 'flex') {
-                 renderFullBlocks();
-             }
+            const newBlock = {
+                number: blockNumber,
+                hash: signedBlock.block.header.hash.toHex(),
+                author: author,
+                timestamp: Date.now(),
+                extrinsics: signedBlock.block.extrinsics.length,
+                events: 0
+            };
+
+            blocks.unshift(newBlock);
+            if (blocks.length > 10) blocks.pop();
+            renderBlocks();
+
+            const newFullBlock = {
+                number: blockNumber,
+                hash: signedBlock.block.header.hash.toHex(),
+                authorAddress: author,
+                authorName: author,
+                extrinsicsCount: signedBlock.block.extrinsics.length,
+                eventsCount: 0,
+                timestamp: Date.now()
+            };
+            fullBlocks.unshift(newFullBlock);
+            if (fullBlocks.length > 200) fullBlocks.pop();
+            if (document.querySelector('.blocks-page').style.display === 'flex') {
+                renderFullBlocks();
+            }
         }).catch(console.error);
     });
 }
@@ -252,7 +252,7 @@ function renderTransactions() {
     transactions.forEach((tx, index) => {
         const el = document.createElement('div');
         el.className = `list-item ${index === 0 ? 'animate-in' : ''}`;
-        
+
         const shortHash = tx.hash.substring(0, 10) + '...';
         const shortFrom = tx.from.substring(0, 8) + '...';
         let shortTo = tx.to.toString();
@@ -287,15 +287,15 @@ async function fetchValidators() {
     if (validatorsFetched) return;
     try {
         validatorsListEl.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px;">Fetching from backend indexer...</td></tr>';
-        
+
         const response = await fetch('/api/validators');
         const data = await response.json();
-        
+
         if (data.status === 'Initializing' || data.status === 'Syncing' && data.validators.length === 0) {
-             validatorsListEl.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: orange;">Indexer is syncing data from Polkadex node, please wait...</td></tr>';
-             // Retry in 3 seconds
-             setTimeout(() => { validatorsFetched = false; fetchValidators(); }, 3000);
-             return;
+            validatorsListEl.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: orange;">Indexer is syncing data from Polkadex node, please wait...</td></tr>';
+            // Retry in 3 seconds
+            setTimeout(() => { validatorsFetched = false; fetchValidators(); }, 3000);
+            return;
         }
 
         validatorCountEl.innerText = `${data.totalCount} Active`;
@@ -303,7 +303,7 @@ async function fetchValidators() {
         sortValidators();
         validatorsFetched = true;
         renderValidators();
-        
+
     } catch (err) {
         console.error("Error fetching validators:", err);
         validatorsListEl.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px; color: var(--error);">Error reaching backend indexer. Is node server.js running?</td></tr>';
@@ -313,10 +313,10 @@ async function fetchValidators() {
 function renderValidators() {
     let html = '';
     const toDisplay = currentValidators.slice(0, validatorDisplayLimit);
-    
+
     for (const val of toDisplay) {
         const shortAddr = val.address.substring(0, 8) + '...' + val.address.substring(val.address.length - 8);
-        
+
         // Commission & Risk Logic
         let commissionHtml = `${val.commission.toFixed(2)}%`;
         if (val.commission > 50) {
@@ -327,16 +327,16 @@ function renderValidators() {
             <tr>
                 <td class="address-cell"><a href="#validator/${val.address}" class="item-link">${shortAddr}</a></td>
                 <td><a href="#validator/${val.address}" class="item-link">${val.name}</a></td>
-                <td>${Number(val.totalStake).toLocaleString('en-US', {maximumFractionDigits:2})} <span class="unit">PDEX</span></td>
+                <td>${Number(val.totalStake).toLocaleString('en-US', { maximumFractionDigits: 2 })} <span class="unit">PDEX</span></td>
                 <td>${commissionHtml}</td>
                 <td style="color: var(--success); font-weight: 500;">${val.avg30DayApy.toFixed(2)}%</td>
                 <td>${val.realApy.toFixed(2)}% <span class="unit">/</span> <span style="color: var(--success);">${val.avg30DayApy.toFixed(2)}%</span></td>
             </tr>
         `;
     }
-    
+
     validatorsListEl.innerHTML = html;
-    
+
     const showMoreBtn = document.getElementById('show-more-btn');
     if (showMoreBtn) {
         if (validatorDisplayLimit < currentValidators.length) {
@@ -354,7 +354,7 @@ function sortValidators() {
     currentValidators.sort((a, b) => {
         let valA = a[currentSort.field];
         let valB = b[currentSort.field];
-        
+
         if (typeof valA === 'string') valA = valA.toLowerCase();
         if (typeof valB === 'string') valB = valB.toLowerCase();
 
@@ -374,7 +374,7 @@ document.querySelectorAll('.sortable').forEach(th => {
             // Default descending for numbers (AP/Comm), ascending for strings (Identity)
             currentSort.asc = field === 'name' ? true : false;
         }
-        
+
         // update icons
         document.querySelectorAll('.sortable i').forEach(i => i.className = 'bx bx-sort');
         const icon = th.querySelector('i');
@@ -394,21 +394,21 @@ async function fetchHolders() {
     try {
         if (!holdersListEl) return;
         holdersListEl.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 20px;">Fetching from backend indexer...</td></tr>';
-        
+
         const response = await fetch('/api/holders');
         const data = await response.json();
-        
+
         if (data.status === 'Initializing' || data.status === 'Syncing' && data.holders.length === 0) {
-             holdersListEl.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 20px; color: orange;">Indexer is syncing data from Polkadex node, please wait...</td></tr>';
-             setTimeout(() => { holdersFetched = false; fetchHolders(); }, 3000);
-             return;
+            holdersListEl.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 20px; color: orange;">Indexer is syncing data from Polkadex node, please wait...</td></tr>';
+            setTimeout(() => { holdersFetched = false; fetchHolders(); }, 3000);
+            return;
         }
 
         if (holderCountEl) holderCountEl.innerText = `${data.holders.length} Top Holders`;
         currentHolders = data.holders;
         holdersFetched = true;
         renderHolders();
-        
+
     } catch (err) {
         console.error("Error fetching holders:", err);
         holdersListEl.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 20px; color: var(--error);">Error reaching backend indexer. Is node server.js running?</td></tr>';
@@ -419,23 +419,23 @@ function renderHolders() {
     if (!holdersListEl) return;
     let html = '';
     const toDisplay = currentHolders.slice(0, holderDisplayLimit);
-    
+
     for (const val of toDisplay) {
         const shortAddr = val.address.substring(0, 8) + '...' + val.address.substring(val.address.length - 8);
-        
+
         html += `
             <tr>
                 <td>#${val.rank}</td>
                 <td class="address-cell"><a href="#account/${val.address}" class="item-link">${shortAddr}</a></td>
                 <td><a href="#account/${val.address}" class="item-link">${val.name}</a></td>
-                <td>${Number(val.balance).toLocaleString('en-US', {maximumFractionDigits:2})} <span class="unit">PDEX</span></td>
+                <td>${Number(val.balance).toLocaleString('en-US', { maximumFractionDigits: 2 })} <span class="unit">PDEX</span></td>
                 <td style="color: var(--brand-primary); font-weight: 500;">${val.share.toFixed(4)}%</td>
             </tr>
         `;
     }
-    
+
     holdersListEl.innerHTML = html;
-    
+
     const showMoreBtn = document.getElementById('show-more-holders-btn');
     if (showMoreBtn) {
         if (holderDisplayLimit < currentHolders.length) {
@@ -464,21 +464,21 @@ async function fetchTransactions() {
     try {
         if (!fullTransactionsListEl) return;
         fullTransactionsListEl.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 20px;">Fetching from backend indexer...</td></tr>';
-        
+
         const response = await fetch('/api/transactions');
         const data = await response.json();
-        
+
         if (data.status === 'Initializing' || (data.status === 'Syncing' && data.transactions.length === 0)) {
-             fullTransactionsListEl.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 20px; color: orange;">Indexer is crawling historical blocks, please wait...</td></tr>';
-             setTimeout(() => { txFetched = false; fetchTransactions(); }, 5000);
-             return;
+            fullTransactionsListEl.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 20px; color: orange;">Indexer is crawling historical blocks, please wait...</td></tr>';
+            setTimeout(() => { txFetched = false; fetchTransactions(); }, 5000);
+            return;
         }
 
         transactions = data.transactions;
         txFetched = true;
         sortTransactions();
         renderFullTransactions();
-        
+
     } catch (err) {
         console.error("Error fetching transactions:", err);
         fullTransactionsListEl.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 20px; color: var(--error);">Error reaching backend indexer. Is node server.js running?</td></tr>';
@@ -489,15 +489,15 @@ function renderFullTransactions() {
     if (!fullTransactionsListEl) return;
     let html = '';
     const toDisplay = transactions.slice(0, txDisplayLimit);
-    
+
     for (const tx of toDisplay) {
         const shortHash = tx.hash.substring(0, 10) + '...';
         const shortFrom = tx.from.substring(0, 8) + '...';
         let shortTo = tx.to.toString();
         if (shortTo.length > 15) shortTo = shortTo.substring(0, 8) + '...';
-        
+
         const dateObj = new Date(tx.timestamp);
-        const dateStr = `${timeAgo(tx.timestamp)} (${dateObj.toISOString().replace('T',' ').substring(0,19)})`;
+        const dateStr = `${timeAgo(tx.timestamp)} (${dateObj.toISOString().replace('T', ' ').substring(0, 19)})`;
 
         html += `
             <tr>
@@ -512,10 +512,10 @@ function renderFullTransactions() {
             </tr>
         `;
     }
-    
+
     fullTransactionsListEl.innerHTML = html;
     if (txCountEl) txCountEl.innerText = `${transactions.length} Records`;
-    
+
     const showMoreTxBtn = document.getElementById('show-more-tx-btn');
     if (showMoreTxBtn) {
         if (txDisplayLimit < transactions.length) {
@@ -531,20 +531,26 @@ async function fetchBlocks() {
     try {
         if (!fullBlocksListEl) return;
         fullBlocksListEl.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 20px;">Fetching from backend indexer...</td></tr>';
-        
+
         const response = await fetch('/api/blocks');
         const data = await response.json();
-        
+
+        // 1. Explicitly throw if the backend returns an error object
+        if (data.error) throw new Error(data.error);
+
+        // 2. Ensure data.blocks exists before proceeding
+        if (!data.blocks) throw new Error("No blocks array returned");
+
         if (data.status === 'Initializing' || (data.status === 'Syncing' && data.blocks.length === 0)) {
-             fullBlocksListEl.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 20px; color: orange;">Indexer is crawling historical blocks, please wait...</td></tr>';
-             setTimeout(() => { blocksFetched = false; fetchBlocks(); }, 5000);
-             return;
+            fullBlocksListEl.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 20px; color: orange;">Indexer is crawling historical blocks, please wait...</td></tr>';
+            setTimeout(() => { blocksFetched = false; fetchBlocks(); }, 5000);
+            return;
         }
 
         fullBlocks = data.blocks;
         blocksFetched = true;
         renderFullBlocks();
-        
+
     } catch (err) {
         console.error("Error fetching blocks:", err);
         fullBlocksListEl.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 20px; color: var(--error);">Error reaching backend indexer. Is node server.js running?</td></tr>';
@@ -555,7 +561,7 @@ function renderFullBlocks() {
     if (!fullBlocksListEl) return;
     let html = '';
     const toDisplay = fullBlocks.slice(0, blockDisplayLimit);
-    
+
     for (const b of toDisplay) {
         const shortHash = b.hash.substring(0, 10) + '...';
         const dateObj = new Date(b.timestamp);
@@ -568,14 +574,14 @@ function renderFullBlocks() {
                 <td style="font-weight: 500;">${b.extrinsicsCount}</td>
                 <td style="font-weight: 500;">${b.eventsCount}</td>
                 <td class="address-cell"><a href="#block/${b.hash}" class="item-link">${shortHash}</a></td>
-                <td style="color: var(--text-secondary);">${dateObj.toISOString().replace('T',' ').substring(0,19)}</td>
+                <td style="color: var(--text-secondary);">${dateObj.toISOString().replace('T', ' ').substring(0, 19)}</td>
             </tr>
         `;
     }
-    
+
     fullBlocksListEl.innerHTML = html;
     if (blockCountEl) blockCountEl.innerText = `${fullBlocks.length} Records`;
-    
+
     const showMoreBlocksBtn = document.getElementById('show-more-blocks-btn');
     if (showMoreBlocksBtn) {
         if (blockDisplayLimit < fullBlocks.length) {
@@ -591,20 +597,20 @@ async function fetchEvents() {
     try {
         if (!fullEventsListEl) return;
         fullEventsListEl.innerHTML = '<div style="text-align:center; padding: 20px;">Fetching from backend indexer...</div>';
-        
+
         const response = await fetch('/api/events');
         const data = await response.json();
-        
+
         if (data.status === 'Initializing' || (data.status === 'Syncing' && data.events.length === 0)) {
-             fullEventsListEl.innerHTML = '<div style="text-align:center; padding: 20px; color: orange;">Indexer is crawling historical events, please wait...</div>';
-             setTimeout(() => { eventsFetched = false; fetchEvents(); }, 5000);
-             return;
+            fullEventsListEl.innerHTML = '<div style="text-align:center; padding: 20px; color: orange;">Indexer is crawling historical events, please wait...</div>';
+            setTimeout(() => { eventsFetched = false; fetchEvents(); }, 5000);
+            return;
         }
 
         fullEvents = data.events;
         eventsFetched = true;
         renderFullEvents();
-        
+
     } catch (err) {
         console.error("Error fetching events:", err);
         fullEventsListEl.innerHTML = '<div style="text-align:center; padding: 20px; color: var(--error);">Error reaching backend indexer. Is node server.js running?</div>';
@@ -615,13 +621,13 @@ function renderFullEvents() {
     if (!fullEventsListEl) return;
     let html = '';
     const toDisplay = fullEvents.slice(0, eventDisplayLimit);
-    
+
     for (const ev of toDisplay) {
         const shortHash = ev.hash.substring(0, 15) + '...';
         const dateObj = new Date(ev.timestamp);
         const actionStr = `${ev.section} -> ${ev.method}`;
         const identityStr = (ev.signerName && ev.signerName !== "Unknown") ? ev.signerName : ev.signerAddress;
-        
+
         html += `
             <div class="event-list-item">
                 <div>
@@ -639,7 +645,7 @@ function renderFullEvents() {
                     ${timeAgo(ev.timestamp)}
                 </div>
                 <div style="color: var(--text-secondary); font-size: 14px;">
-                    ${dateObj.toISOString().replace('T',' ').substring(0,19)}(UTC)
+                    ${dateObj.toISOString().replace('T', ' ').substring(0, 19)}(UTC)
                 </div>
                 <div>
                     <span class="badge" style="background: var(--success); font-size: 11px;">${ev.status}</span>
@@ -647,10 +653,10 @@ function renderFullEvents() {
             </div>
         `;
     }
-    
+
     fullEventsListEl.innerHTML = html;
     if (eventCountEl) eventCountEl.innerText = `${fullEvents.length} Records`;
-    
+
     const showMoreEventsBtn = document.getElementById('show-more-events-btn');
     if (showMoreEventsBtn) {
         if (eventDisplayLimit < fullEvents.length) {
@@ -668,9 +674,9 @@ document.querySelectorAll('.sortable-tx').forEach(th => {
             currentTxSort.asc = !currentTxSort.asc;
         } else {
             currentTxSort.field = field;
-            currentTxSort.asc = false; 
+            currentTxSort.asc = false;
         }
-        
+
         document.querySelectorAll('.sortable-tx i').forEach(i => i.className = 'bx bx-sort');
         const icon = th.querySelector('i');
         icon.className = currentTxSort.asc ? 'bx bx-sort-up' : 'bx bx-sort-down';
@@ -754,13 +760,13 @@ async function performSearch(query) {
     currentSearchQuery = query;
     if (searchQueryDisplay) searchQueryDisplay.innerText = query;
     if (searchResultsContainer) searchResultsContainer.innerHTML = '<div style="text-align:center; padding: 20px;">Searching local indexer...</div>';
-    
+
     // Ensure all data is fetched
     await Promise.all([fetchTransactions(), fetchBlocks(), fetchEvents()]);
-    
+
     let html = '';
     let found = false;
-    
+
     // Search Blocks (by number or hash)
     const matchingBlocks = fullBlocks.filter(b => b.number.toString() === query || b.hash.toLowerCase() === query.toLowerCase());
     if (matchingBlocks.length > 0) {
@@ -770,7 +776,7 @@ async function performSearch(query) {
             html += `<div style="padding: 10px 0;">Block <strong>${b.number}</strong> (${b.hash}) - ${b.extrinsicsCount} extrinsics, ${b.eventsCount} events</div>`;
         });
     }
-    
+
     // Search Transactions (by hash or address)
     const matchingTx = transactions.filter(t => t.hash.toLowerCase() === query.toLowerCase() || t.from.toLowerCase() === query.toLowerCase() || t.to.toLowerCase() === query.toLowerCase());
     if (matchingTx.length > 0) {
@@ -780,7 +786,7 @@ async function performSearch(query) {
             html += `<div style="padding: 10px 0;">Tx Hash: <strong>${t.hash}</strong><br>From: ${t.from}<br>To: ${t.to}<br>Amount: ${t.numericAmount} PDEX</div>`;
         });
     }
-    
+
     // Search Events (by hash, address, or block)
     const matchingEvents = fullEvents.filter(e => e.hash.toLowerCase() === query.toLowerCase() || e.signerAddress.toLowerCase() === query.toLowerCase() || e.block.toString() === query);
     if (matchingEvents.length > 0) {
@@ -790,11 +796,11 @@ async function performSearch(query) {
             html += `<div style="padding: 10px 0;">Event: <strong>${e.section} -> ${e.method}</strong> in Block ${e.block}<br>Signer: ${e.signerName !== 'Unknown' ? e.signerName : e.signerAddress}</div>`;
         });
     }
-    
+
     if (!found) {
         html = '<div style="text-align:center; padding: 20px; color: orange;">No results found in recent local history. Try deep search.</div>';
     }
-    
+
     if (searchResultsContainer) searchResultsContainer.innerHTML = html;
 }
 
@@ -807,10 +813,10 @@ async function deepSearchNetwork(query) {
             searchResultsContainer.innerHTML = `<div style="text-align:center; padding: 20px; color: var(--error);">Deep Search Failed: ${err.error}</div>`;
             return;
         }
-        
+
         const data = await response.json();
         let html = '';
-        
+
         if (data.type === 'block') {
             html += `<h3 style="margin-top: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">Block Detail (Deep Search)</h3>`;
             html += `<div style="padding: 10px 0;">Block <strong>${data.data.number}</strong> (${data.data.hash})<br>Author: ${data.data.authorAddress}<br>${data.data.extrinsicsCount} extrinsics, ${data.data.eventsCount} events</div>`;
@@ -818,10 +824,10 @@ async function deepSearchNetwork(query) {
             html += `<h3 style="margin-top: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">Account Detail (Deep Search)</h3>`;
             html += `<div style="padding: 10px 0;">Address: <strong>${data.data.address}</strong><br>Identity: ${data.data.name}<br>Total Balance: ${data.data.balance.toFixed(4)} PDEX<br>Free: ${data.data.free.toFixed(4)} PDEX, Reserved: ${data.data.reserved.toFixed(4)} PDEX</div>`;
         }
-        
+
         if (searchResultsContainer) searchResultsContainer.innerHTML = html;
-        
-    } catch(err) {
+
+    } catch (err) {
         searchResultsContainer.innerHTML = `<div style="text-align:center; padding: 20px; color: var(--error);">Deep search error: ${err.message}</div>`;
     }
 }
@@ -829,11 +835,11 @@ async function deepSearchNetwork(query) {
 // Routing Logic
 function routeTo(target) {
     if (!target) target = 'home';
-    
+
     let mainTarget = target;
     let detailId = null;
     let detailId2 = null;
-    
+
     if (target.startsWith('account/')) {
         mainTarget = 'account-details';
         detailId = target.split('/')[1];
@@ -848,7 +854,7 @@ function routeTo(target) {
         detailId = target.split('/')[1];
         detailId2 = target.split('/')[2];
     }
-    
+
     // Update active nav
     navItems.forEach(n => {
         n.classList.remove('active');
@@ -897,7 +903,7 @@ function renderJSONTree(obj, indent = 0) {
     if (typeof obj === 'boolean') return `<span class="json-boolean">${obj}</span>`;
     if (typeof obj === 'number') return `<span class="json-number">${obj}</span>`;
     if (typeof obj === 'string') return `<span class="json-string">"${obj}"</span>`;
-    
+
     if (Array.isArray(obj)) {
         if (obj.length === 0) return '[]';
         let html = '[\n';
@@ -909,7 +915,7 @@ function renderJSONTree(obj, indent = 0) {
         html += '  '.repeat(indent) + ']';
         return html;
     }
-    
+
     if (typeof obj === 'object') {
         const keys = Object.keys(obj);
         if (keys.length === 0) return '{}';
@@ -925,10 +931,10 @@ function renderJSONTree(obj, indent = 0) {
     return String(obj);
 }
 
-window.switchAccountTab = function(tabName) {
+window.switchAccountTab = function (tabName) {
     document.querySelectorAll('.account-tab-btn').forEach(btn => btn.classList.remove('active', 'tab-active'));
     document.querySelectorAll('.account-tab-btn').forEach(btn => {
-        if(btn.innerText.toLowerCase() === tabName.toLowerCase()) {
+        if (btn.innerText.toLowerCase() === tabName.toLowerCase()) {
             btn.classList.add('active', 'tab-active');
             btn.style.color = 'var(--brand-secondary)';
             btn.style.borderBottom = '2px solid var(--brand-secondary)';
@@ -948,7 +954,7 @@ async function fetchAccountDetails(address) {
         const res = await fetch(`/api/account/${address}`);
         const data = await res.json();
         if (data.error) throw new Error(data.error);
-        
+
         // Transactions Table
         let txHtml = `
             <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
@@ -963,12 +969,12 @@ async function fetchAccountDetails(address) {
                 </thead>
                 <tbody>
         `;
-        
+
         data.transactions.forEach(t => {
             const dateObj = new Date(t.timestamp);
             const dateStr = dateObj.toISOString().replace('T', ' ').substring(0, 19) + '(UTC)';
             const statusBadge = t.status === 'success' ? `<span class="badge" style="background: rgba(46, 204, 113, 0.2); color: #2ecc71;">Success</span>` : `<span class="badge" style="background: rgba(231, 76, 60, 0.2); color: #e74c3c;">Failed</span>`;
-            
+
             txHtml += `
                 <tr style="border-bottom: 1px solid rgba(255,255,255,0.02);">
                     <td style="padding: 15px 10px;"><a href="#tx/${t.block}/${t.hash}" class="item-link" style="color: var(--brand-secondary);">${t.hash.substring(0, 25)}...</a></td>
@@ -979,7 +985,7 @@ async function fetchAccountDetails(address) {
                 </tr>
             `;
         });
-        if(data.transactions.length === 0) {
+        if (data.transactions.length === 0) {
             if (data.status === 'Syncing') {
                 txHtml += '<tr><td colspan="5" style="padding: 20px; text-align: center; color: var(--brand-secondary);">Crawling deep history (up to 30 days)... Please refresh in a minute.</td></tr>';
             } else {
@@ -1006,7 +1012,7 @@ async function fetchAccountDetails(address) {
             const dateObj = new Date(e.timestamp);
             const dateStr = dateObj.toISOString().replace('T', ' ').substring(0, 19) + '(UTC)';
             const statusBadge = `<span class="badge" style="background: rgba(46, 204, 113, 0.2); color: #2ecc71;">Success</span>`;
-            
+
             evHtml += `
                 <tr style="border-bottom: 1px solid rgba(255,255,255,0.02);">
                     <td style="padding: 15px 10px;"><span class="address-cell" style="color: var(--brand-secondary);">${e.hash.substring(0, 25)}...</span></td>
@@ -1017,7 +1023,7 @@ async function fetchAccountDetails(address) {
                 </tr>
             `;
         });
-        if(data.events.length === 0) {
+        if (data.events.length === 0) {
             if (data.status === 'Syncing') {
                 evHtml += '<tr><td colspan="5" style="padding: 20px; text-align: center; color: var(--brand-secondary);">Crawling deep history (up to 30 days)... Please refresh in a minute.</td></tr>';
             } else {
@@ -1076,7 +1082,7 @@ async function fetchAccountDetails(address) {
             </div>
         `;
         accountDetailsContainer.innerHTML = html;
-    } catch(e) {
+    } catch (e) {
         accountDetailsContainer.innerHTML = `<div style="text-align:center; padding: 20px; color: var(--error);">Error: ${e.message}</div>`;
     }
 }
@@ -1087,21 +1093,21 @@ async function fetchBlockDetails(id) {
         const res = await fetch(`/api/block/${id}`);
         const data = await res.json();
         if (data.error) throw new Error(data.error);
-        
+
         let html = `
             <div class="list-header" style="border-bottom: 1px solid var(--border-color); padding: 20px;">
                 <h2>Block ${data.block.header.number}</h2>
             </div>
             <div style="padding: 20px;">
                 <div style="margin-bottom: 10px;"><strong>hash</strong> <span class="address-cell">${data.hash}</span></div>
-                <div style="margin-bottom: 20px;"><strong>date UTC</strong> <span style="color: var(--text-secondary);">${new Date(data.date).toISOString().replace('T',' ').substring(0,19)}</span></div>
+                <div style="margin-bottom: 20px;"><strong>date UTC</strong> <span style="color: var(--text-secondary);">${new Date(data.date).toISOString().replace('T', ' ').substring(0, 19)}</span></div>
                 <div class="json-container">
                     ${renderJSONTree({ block: data.block })}
                 </div>
             </div>
         `;
         blockDetailsContainer.innerHTML = html;
-    } catch(e) {
+    } catch (e) {
         blockDetailsContainer.innerHTML = `<div style="text-align:center; padding: 20px; color: var(--error);">Error: ${e.message}</div>`;
     }
 }
@@ -1112,14 +1118,14 @@ async function fetchTxDetails(block, hash) {
         const res = await fetch(`/api/extrinsic/${block}/${hash}`);
         const data = await res.json();
         if (data.error) throw new Error(data.error);
-        
+
         let html = `
             <div class="list-header" style="border-bottom: 1px solid var(--border-color); padding: 20px;">
                 <h2>Tx: ${data.hash}</h2>
             </div>
             <div style="padding: 20px;">
                 <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px; text-align: left;">
-                    <tr><td style="padding: 10px; font-weight: bold; width: 150px;">Time</td><td style="padding: 10px;">${new Date(data.time).toISOString().replace('T',' ').substring(0,19)} (UTC)</td></tr>
+                    <tr><td style="padding: 10px; font-weight: bold; width: 150px;">Time</td><td style="padding: 10px;">${new Date(data.time).toISOString().replace('T', ' ').substring(0, 19)} (UTC)</td></tr>
                     <tr style="background: rgba(255,255,255,0.02);"><td style="padding: 10px; font-weight: bold;">event</td><td style="padding: 10px;">${data.event}</td></tr>
                     <tr><td style="padding: 10px; font-weight: bold;">from</td><td style="padding: 10px;"><a href="#account/${data.from}" class="item-link address-cell">${data.from}</a></td></tr>
                     <tr style="background: rgba(255,255,255,0.02);"><td style="padding: 10px; font-weight: bold;">to</td><td style="padding: 10px;"><a href="#account/${data.to}" class="item-link address-cell">${data.to}</a></td></tr>
@@ -1132,7 +1138,7 @@ async function fetchTxDetails(block, hash) {
             </div>
         `;
         txDetailsContainer.innerHTML = html;
-    } catch(e) {
+    } catch (e) {
         txDetailsContainer.innerHTML = `<div style="text-align:center; padding: 20px; color: var(--error);">Error: ${e.message}</div>`;
     }
 }
@@ -1142,7 +1148,7 @@ window.addEventListener('hashchange', () => {
     routeTo(hash || 'home');
 });
 
-window.copyToClipboard = function(element, text) {
+window.copyToClipboard = function (element, text) {
     navigator.clipboard.writeText(text).then(() => {
         const originalText = element.innerText;
         element.innerText = 'copied!';
@@ -1172,14 +1178,14 @@ async function fetchValidatorDetails(address) {
     const container = document.getElementById('validator-details-container');
     if (!container) return;
     container.innerHTML = '<div style="text-align:center; padding: 20px;">Fetching validator history...</div>';
-    
+
     try {
         const res = await fetch(`/api/validator/${address}`);
         const data = await res.json();
         if (data.error) throw new Error(data.error);
-        
-        const identityStr = data.identity !== "Unknown" ? data.identity : `<span class="address-cell">${address.substring(0,8)}...</span>`;
-        
+
+        const identityStr = data.identity !== "Unknown" ? data.identity : `<span class="address-cell">${address.substring(0, 8)}...</span>`;
+
         let commissionWarning = '';
         if (data.history.length > 0) {
             const maxComm = Math.max(...data.history.map(h => h.commission));
@@ -1238,7 +1244,7 @@ async function fetchValidatorDetails(address) {
                 </tr>
             `;
         });
-        
+
         if (data.history.length === 0) {
             historyTableRows = '<tr><td colspan="4" style="padding: 20px; text-align: center; color: var(--text-secondary);">Syncing historical eras. Check back later!</td></tr>';
         }
@@ -1290,7 +1296,7 @@ async function fetchValidatorDetails(address) {
                 </div>
             </div>
         `;
-        
+
         // Render Chart.js
         if (data.history.length > 0) {
             const ctx = document.getElementById('validatorChartCanvas');
@@ -1300,9 +1306,9 @@ async function fetchValidatorDetails(address) {
                 const labels = chronHistory.map(h => `Era ${h.era}`);
                 const commissions = chronHistory.map(h => h.commission);
                 const apys = chronHistory.map(h => h.apy);
-                
+
                 if (validatorChart) validatorChart.destroy();
-                
+
                 validatorChart = new Chart(ctx, {
                     type: 'line',
                     data: {
@@ -1348,7 +1354,7 @@ async function fetchValidatorDetails(address) {
                             },
                             y: {
                                 ticks: {
-                                    callback: function(value) { return value + '%'; },
+                                    callback: function (value) { return value + '%'; },
                                     color: '#888'
                                 },
                                 grid: { color: 'rgba(255,255,255,0.05)' }
@@ -1366,7 +1372,7 @@ async function fetchValidatorDetails(address) {
 
 setInterval(() => {
     renderBlocks();
-    if(transactions.length > 0) renderTransactions();
+    if (transactions.length > 0) renderTransactions();
 }, 10000);
 
 init();
