@@ -10,6 +10,7 @@ services:
     ports:
       - "3001:3001"
     volumes:
+      # Maps the Docker volume to the new DATA_DIR we created in server.js
       - cache_data:/app/data
 
   frontend:
