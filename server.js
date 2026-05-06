@@ -7,7 +7,7 @@ import path from 'path';
 const app = express();
 app.use(cors());
 
-const CACHE_FILE = path.join(process.cwd(), 'cache.json');
+const CACHE_FILE = path.join(process.cwd(), 'data', 'cache.json');
 const HOLDERS_CACHE_FILE = path.join(process.cwd(), 'holders_cache.json');
 const TX_CACHE_FILE = path.join(process.cwd(), 'transactions_cache.json');
 const BLOCKS_CACHE_FILE = path.join(process.cwd(), 'blocks_cache.json');
@@ -65,7 +65,7 @@ async function initCache() {
 
 // Format PDEX balances (12 decimals)
 function formatPDEX(balance) {
-    return Number(balance) / 10**12;
+    return Number(balance) / 10 ** 12;
 }
 
 // Format hex string to human readable if possible
@@ -74,7 +74,7 @@ function formatIdentityName(rawStr) {
     if (rawStr.startsWith('0x')) {
         try {
             return Buffer.from(rawStr.slice(2), 'hex').toString('utf8');
-        } catch(e) {
+        } catch (e) {
             return rawStr;
         }
     }
@@ -89,14 +89,14 @@ async function getIdentity(api, address) {
             const [parentAddress, data] = superOf.unwrap();
             const parentIdentity = await api.query.identity.identityOf(parentAddress);
             let parentName = "Unknown";
-            
+
             const pHuman = parentIdentity.toHuman();
             if (pHuman && pHuman.info && pHuman.info.display && pHuman.info.display.Raw) {
-                 parentName = formatIdentityName(pHuman.info.display.Raw);
+                parentName = formatIdentityName(pHuman.info.display.Raw);
             } else if (pHuman && Array.isArray(pHuman) && pHuman[0] && pHuman[0].info) {
-                 parentName = formatIdentityName(pHuman[0].info.display.Raw);
+                parentName = formatIdentityName(pHuman[0].info.display.Raw);
             }
-            
+
             const subDataHuman = data.toHuman();
             const subName = subDataHuman ? formatIdentityName(subDataHuman.Raw) : "Unknown";
             name = `${parentName} / ${subName}`;
@@ -104,9 +104,9 @@ async function getIdentity(api, address) {
             const identity = await api.query.identity.identityOf(address);
             const human = identity.toHuman();
             if (human && human.info && human.info.display && human.info.display.Raw) {
-                 name = formatIdentityName(human.info.display.Raw);
+                name = formatIdentityName(human.info.display.Raw);
             } else if (human && Array.isArray(human) && human[0] && human[0].info) {
-                 name = formatIdentityName(human[0].info.display.Raw);
+                name = formatIdentityName(human[0].info.display.Raw);
             }
         }
     } catch (e) {
@@ -121,54 +121,54 @@ async function syncData() {
     try {
         console.log("Starting validator indexer sync...");
         let cacheData = { validators: [], lastSync: 0, status: 'Syncing' };
-        
+
         try {
             const rawData = await fs.readFile(CACHE_FILE, 'utf8');
             cacheData = JSON.parse(rawData);
             cacheData.status = 'Syncing';
             await fs.writeFile(CACHE_FILE, JSON.stringify(cacheData));
-        } catch(e) {}
+        } catch (e) { }
 
         const activeEraOption = await globalApi.query.staking.activeEra();
         const activeEra = activeEraOption.isSome ? activeEraOption.unwrap().index.toNumber() : 0;
-        
+
         const validators = await globalApi.query.session.validators();
         // Fetch all validators
         const validatorsToFetch = validators;
-        
+
         const validatorData = [];
         let count = 0;
-        
+
         for (const address of validatorsToFetch) {
             const addrStr = address.toString();
-            
+
             // 1. Get Identity
             const name = await getIdentity(globalApi, address);
-            
+
             // 2. Get Stake
             const exposure = await globalApi.query.staking.erasStakers(activeEra, address);
             const totalStake = exposure.total.unwrap ? exposure.total.unwrap() : exposure.total;
-            
+
             // 3. Get Commission (raw is Perbill = 1,000,000,000 max. 100% = 1,000,000,000)
             const prefs = await globalApi.query.staking.validators(address);
             let rawCommission = 0;
             if (prefs.commission) {
-                 rawCommission = prefs.commission.unwrap ? prefs.commission.unwrap().toNumber() : prefs.commission.toNumber();
+                rawCommission = prefs.commission.unwrap ? prefs.commission.unwrap().toNumber() : prefs.commission.toNumber();
             }
             // Perbill is parts per billion. 1,000,000,000 = 100%. 
             const commissionPct = (rawCommission / 1000000000) * 100;
-            
+
             // 4. Calculate APY
             // Substrate true 30-day APY requires fetching all erasValidatorReward for 30 eras.
             // Because RPC fetches inside a loop are extremely slow, we simulate the 30-day
             // aggregation based on current estimated network APY (23.09%).
             const baseNetworkApy = 23.09;
             const currentApy = baseNetworkApy * (1 - (commissionPct / 100));
-            
+
             // Simulate a "real 30 day avg" which typically varies slightly from "current era"
-            const variance = (Math.random() * 2) - 1; 
+            const variance = (Math.random() * 2) - 1;
             const avg30DayApy = Math.max(0, currentApy + variance);
-            
+
             validatorData.push({
                 address: addrStr,
                 name: name,
@@ -178,7 +178,7 @@ async function syncData() {
                 avg30DayApy: avg30DayApy
             });
         }
-        
+
         cacheData = {
             validators: validatorData,
             totalCount: validators.length,
@@ -209,13 +209,13 @@ async function syncHolders() {
     try {
         console.log("Starting holders indexer sync...");
         let cacheData = { holders: [], lastSync: 0, status: 'Syncing' };
-        
+
         try {
             const rawData = await fs.readFile(HOLDERS_CACHE_FILE, 'utf8');
             cacheData = JSON.parse(rawData);
             cacheData.status = 'Syncing';
             await fs.writeFile(HOLDERS_CACHE_FILE, JSON.stringify(cacheData));
-        } catch(e) {}
+        } catch (e) { }
 
         const entries = await globalApi.query.system.account.entries();
         const totalIssuance = await globalApi.query.balances.totalIssuance();
@@ -224,8 +224,8 @@ async function syncHolders() {
         const balances = entries.map(([key, data]) => {
             return {
                 address: key.args[0].toString(),
-                free: Number(data.data.free) / 10**12,
-                reserved: Number(data.data.reserved) / 10**12
+                free: Number(data.data.free) / 10 ** 12,
+                reserved: Number(data.data.reserved) / 10 ** 12
             };
         }).sort((a, b) => (b.free + b.reserved) - (a.free + a.reserved));
 
@@ -277,8 +277,8 @@ async function syncTransactions() {
         try {
             const rawData = await fs.readFile(TX_CACHE_FILE, 'utf8');
             cacheData = JSON.parse(rawData);
-        } catch(e) {}
-        
+        } catch (e) { }
+
         if (cacheData.transactions.length < 500) {
             console.log("Starting historical transactions crawler...");
             cacheData.status = 'Syncing';
@@ -292,14 +292,14 @@ async function syncTransactions() {
                 try {
                     const signedBlock = await globalApi.rpc.chain.getBlock(currentHash);
                     const blockNumber = signedBlock.block.header.number.toNumber();
-                    
+
                     let timestamp = Date.now();
                     signedBlock.block.extrinsics.forEach((ex) => {
                         if (ex.method.section === 'timestamp' && ex.method.method === 'set') {
                             timestamp = ex.method.args[0].toNumber();
                         }
                     });
-                    
+
                     signedBlock.block.extrinsics.forEach((ex) => {
                         if (ex.isSigned) {
                             if (!newTransactions.find(t => t.hash === ex.hash.toHex())) {
@@ -317,7 +317,7 @@ async function syncTransactions() {
                             }
                         }
                     });
-                    
+
                     currentHash = signedBlock.block.header.parentHash;
                 } catch (e) {
                     console.log(`Decode error on block ${currentHash.toHex()}, skipping...`);
@@ -325,21 +325,21 @@ async function syncTransactions() {
                         const header = await globalApi.rpc.chain.getHeader(currentHash);
                         currentHash = header.parentHash;
                         continue;
-                    } catch(err) {
+                    } catch (err) {
                         break;
                     }
                 }
-                
+
                 blocksSearched++;
-                
+
                 if (blocksSearched % 250 === 0) {
                     console.log(`Crawler: searched ${blocksSearched} blocks, found ${newTransactions.length} txs`);
-                    cacheData.transactions = newTransactions.sort((a,b) => b.timestamp - a.timestamp);
+                    cacheData.transactions = newTransactions.sort((a, b) => b.timestamp - a.timestamp);
                     await fs.writeFile(TX_CACHE_FILE, JSON.stringify(cacheData));
                 }
             }
-            
-            cacheData.transactions = newTransactions.sort((a,b) => b.timestamp - a.timestamp).slice(0, 500);
+
+            cacheData.transactions = newTransactions.sort((a, b) => b.timestamp - a.timestamp).slice(0, 500);
             cacheData.status = 'Synced';
             cacheData.lastSync = Date.now();
             await fs.writeFile(TX_CACHE_FILE, JSON.stringify(cacheData));
@@ -369,90 +369,70 @@ async function syncBlocks() {
         try {
             const rawData = await fs.readFile(BLOCKS_CACHE_FILE, 'utf8');
             cacheData = JSON.parse(rawData);
-        } catch(e) {}
-        
-        if (cacheData.blocks.length < 200) {
-            console.log("Starting historical blocks crawler...");
-            cacheData.status = 'Syncing';
-            await fs.writeFile(BLOCKS_CACHE_FILE, JSON.stringify(cacheData));
+        } catch (e) { }
 
-            let currentHash = await globalApi.rpc.chain.getBlockHash();
-            let blocksSearched = 0;
-            const newBlocks = [...cacheData.blocks];
+        console.log("Updating latest blocks...");
+        cacheData.status = 'Syncing';
 
-            while (newBlocks.length < 200 && blocksSearched < 500) {
-                try {
-                    const derivedBlock = await globalApi.derive.chain.getBlock(currentHash);
-                    
-                    if (derivedBlock) {
-                        const blockNumber = derivedBlock.block.header.number.toNumber();
-                        
-                        if (!newBlocks.find(b => b.number === blockNumber)) {
-                            let timestamp = Date.now();
-                            derivedBlock.block.extrinsics.forEach((ex) => {
-                                if (ex.method.section === 'timestamp' && ex.method.method === 'set') {
-                                    timestamp = ex.method.args[0].toNumber();
-                                }
-                            });
-                            
-                            let authorAddr = derivedBlock.author ? derivedBlock.author.toString() : "System";
-                            let authorName = authorAddr === "System" ? "System" : await getIdentity(globalApi, authorAddr);
-                            
-                            newBlocks.push({
-                                number: blockNumber,
-                                hash: derivedBlock.block.header.hash.toHex(),
-                                authorAddress: authorAddr,
-                                authorName: authorName,
-                                extrinsicsCount: derivedBlock.block.extrinsics.length,
-                                eventsCount: derivedBlock.events ? derivedBlock.events.length : 0,
-                                timestamp: timestamp
-                            });
-                        }
-                        currentHash = derivedBlock.block.header.parentHash;
+        let currentHash = await globalApi.rpc.chain.getBlockHash();
+        let blocksSearched = 0;
+        const newBlocks = [...cacheData.blocks];
+
+        // Search the most recent 50 blocks to catch updates
+        while (blocksSearched < 50) {
+            try {
+                const derivedBlock = await globalApi.derive.chain.getBlock(currentHash);
+
+                if (derivedBlock) {
+                    const blockNumber = derivedBlock.block.header.number.toNumber();
+
+                    // Check if we already have this block
+                    if (!newBlocks.find(b => b.number === blockNumber)) {
+                        let timestamp = Date.now();
+                        derivedBlock.block.extrinsics.forEach((ex) => {
+                            if (ex.method.section === 'timestamp' && ex.method.method === 'set') {
+                                timestamp = ex.method.args[0].toNumber();
+                            }
+                        });
+
+                        let authorAddr = derivedBlock.author ? derivedBlock.author.toString() : "System";
+                        let authorName = authorAddr === "System" ? "System" : await getIdentity(globalApi, authorAddr);
+
+                        newBlocks.push({
+                            number: blockNumber,
+                            hash: derivedBlock.block.header.hash.toHex(),
+                            authorAddress: authorAddr,
+                            authorName: authorName,
+                            extrinsicsCount: derivedBlock.block.extrinsics.length,
+                            eventsCount: derivedBlock.events ? derivedBlock.events.length : 0,
+                            timestamp: timestamp
+                        });
                     } else {
+                        // Optimization: if we hit a block we already have, we've caught up to our cached history
                         break;
                     }
-                } catch(e) {
-                    console.log(`Decode error on block ${currentHash.toHex()}, skipping...`);
-                    try {
-                        const header = await globalApi.rpc.chain.getHeader(currentHash);
-                        currentHash = header.parentHash;
-                        continue;
-                    } catch(err) {
-                        break;
-                    }
+                    currentHash = derivedBlock.block.header.parentHash;
+                } else {
+                    break;
                 }
-                
-                blocksSearched++;
-                
-                if (blocksSearched % 50 === 0) {
-                    console.log(`Crawler: searched ${blocksSearched} blocks, found ${newBlocks.length} full blocks`);
-                    cacheData.blocks = newBlocks.sort((a,b) => b.number - a.number);
-                    await fs.writeFile(BLOCKS_CACHE_FILE, JSON.stringify(cacheData));
-                }
+            } catch (e) {
+                // ... (keep your existing error handling here) ...
             }
-            
-            cacheData.blocks = newBlocks.sort((a,b) => b.number - a.number).slice(0, 200);
-            cacheData.status = 'Synced';
-            cacheData.lastSync = Date.now();
-            await fs.writeFile(BLOCKS_CACHE_FILE, JSON.stringify(cacheData));
-            console.log("Historical blocks crawler completed.");
+            blocksSearched++;
         }
+
+        // Sort descending and keep the latest 200
+        cacheData.blocks = newBlocks.sort((a, b) => b.number - a.number).slice(0, 200);
+        cacheData.status = 'Synced';
+        cacheData.lastSync = Date.now();
+        await fs.writeFile(BLOCKS_CACHE_FILE, JSON.stringify(cacheData));
+
     } catch (err) {
         console.error("Blocks sync error:", err);
     } finally {
         isSyncingBlocks = false;
     }
 }
-
-app.get('/api/blocks', async (req, res) => {
-    try {
-        const data = await fs.readFile(BLOCKS_CACHE_FILE, 'utf8');
-        res.json(JSON.parse(data));
-    } catch (err) {
-        res.status(500).json({ error: "Cache not available" });
-    }
-});
 
 async function syncEvents() {
     if (isSyncingEvents || !globalApi) return;
@@ -462,8 +442,8 @@ async function syncEvents() {
         try {
             const rawData = await fs.readFile(EVENTS_CACHE_FILE, 'utf8');
             cacheData = JSON.parse(rawData);
-        } catch(e) {}
-        
+        } catch (e) { }
+
         if (cacheData.events.length < 500) {
             console.log("Starting historical events crawler...");
             cacheData.status = 'Syncing';
@@ -477,14 +457,14 @@ async function syncEvents() {
                 try {
                     const signedBlock = await globalApi.rpc.chain.getBlock(currentHash);
                     const blockNumber = signedBlock.block.header.number.toNumber();
-                    
+
                     let timestamp = Date.now();
                     signedBlock.block.extrinsics.forEach((ex) => {
                         if (ex.method.section === 'timestamp' && ex.method.method === 'set') {
                             timestamp = ex.method.args[0].toNumber();
                         }
                     });
-                    
+
                     for (const ex of signedBlock.block.extrinsics) {
                         if (ex.isSigned) {
                             const section = ex.method.section;
@@ -492,7 +472,7 @@ async function syncEvents() {
                                 if (!newEvents.find(e => e.hash === ex.hash.toHex())) {
                                     const signerAddr = ex.signer.toString();
                                     const signerName = await getIdentity(globalApi, signerAddr);
-                                    
+
                                     newEvents.push({
                                         hash: ex.hash.toHex(),
                                         block: blockNumber,
@@ -507,7 +487,7 @@ async function syncEvents() {
                             }
                         }
                     }
-                    
+
                     currentHash = signedBlock.block.header.parentHash;
                 } catch (e) {
                     console.log(`Decode error on block ${currentHash.toHex()}, skipping...`);
@@ -515,21 +495,21 @@ async function syncEvents() {
                         const header = await globalApi.rpc.chain.getHeader(currentHash);
                         currentHash = header.parentHash;
                         continue;
-                    } catch(err) {
+                    } catch (err) {
                         break;
                     }
                 }
-                
+
                 blocksSearched++;
-                
+
                 if (blocksSearched % 200 === 0) {
                     console.log(`Crawler: searched ${blocksSearched} blocks, found ${newEvents.length} events`);
-                    cacheData.events = newEvents.sort((a,b) => b.timestamp - a.timestamp);
+                    cacheData.events = newEvents.sort((a, b) => b.timestamp - a.timestamp);
                     await fs.writeFile(EVENTS_CACHE_FILE, JSON.stringify(cacheData));
                 }
             }
-            
-            cacheData.events = newEvents.sort((a,b) => b.timestamp - a.timestamp).slice(0, 500);
+
+            cacheData.events = newEvents.sort((a, b) => b.timestamp - a.timestamp).slice(0, 500);
             cacheData.status = 'Synced';
             cacheData.lastSync = Date.now();
             await fs.writeFile(EVENTS_CACHE_FILE, JSON.stringify(cacheData));
@@ -553,8 +533,8 @@ app.get('/api/events', async (req, res) => {
 
 app.get('/api/search/:query', async (req, res) => {
     const q = req.params.query.trim();
-    if (!globalApi) return res.status(500).json({error: 'API not ready'});
-    
+    if (!globalApi) return res.status(500).json({ error: 'API not ready' });
+
     try {
         if (/^\d+$/.test(q)) {
             const blockNum = parseInt(q);
@@ -575,7 +555,7 @@ app.get('/api/search/:query', async (req, res) => {
                 }
             }
         }
-        
+
         if (q.startsWith('0x') && q.length === 66) {
             try {
                 const derivedBlock = await globalApi.derive.chain.getBlock(q);
@@ -591,14 +571,14 @@ app.get('/api/search/:query', async (req, res) => {
                         }
                     });
                 }
-            } catch(e) {}
+            } catch (e) { }
         }
-        
+
         try {
             const accountInfo = await globalApi.query.system.account(q);
             const name = await getIdentity(globalApi, q);
-            const free = Number(accountInfo.data.free) / 10**12;
-            const reserved = Number(accountInfo.data.reserved) / 10**12;
+            const free = Number(accountInfo.data.free) / 10 ** 12;
+            const reserved = Number(accountInfo.data.reserved) / 10 ** 12;
             if (free > 0 || reserved > 0 || name !== "Unknown") {
                 return res.json({
                     type: 'account',
@@ -611,18 +591,18 @@ app.get('/api/search/:query', async (req, res) => {
                     }
                 });
             }
-        } catch(e) {}
-        
-        res.status(404).json({error: 'No exact deep network match found for query.'});
-    } catch(err) {
-        res.status(500).json({error: err.message});
+        } catch (e) { }
+
+        res.status(404).json({ error: 'No exact deep network match found for query.' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
 async function crawlAccountHistory(address) {
     if (isCrawlingAccount[address]) return;
     isCrawlingAccount[address] = true;
-    
+
     console.log(`Starting background deep crawl for account ${address}`);
     try {
         let accountData = { transactions: [], events: [], status: 'Syncing', lastSync: Date.now() };
@@ -630,43 +610,43 @@ async function crawlAccountHistory(address) {
             const fileData = await fs.readFile(ACCOUNT_CACHE_FILE, 'utf8');
             const cache = JSON.parse(fileData);
             if (cache.accounts[address]) accountData = cache.accounts[address];
-        } catch(e) {}
-        
+        } catch (e) { }
+
         let currentHash = await globalApi.rpc.chain.getBlockHash();
         let blocksSearched = 0;
         let txsFound = accountData.transactions.length;
         let evsFound = accountData.events.length;
-        
+
         while (blocksSearched < 250000 && (txsFound < 20 || evsFound < 20)) {
             try {
                 const signedBlock = await globalApi.rpc.chain.getBlock(currentHash);
                 const blockNum = signedBlock.block.header.number.toNumber();
-                
+
                 let timestamp = Date.now();
                 signedBlock.block.extrinsics.forEach((ex) => {
                     if (ex.method.section === 'timestamp' && ex.method.method === 'set') {
                         timestamp = ex.method.args[0].toNumber();
                     }
                 });
-                
+
                 let blockEvents = [];
                 try {
                     const apiAt = await globalApi.at(currentHash);
                     blockEvents = await apiAt.query.system.events();
-                } catch(err) { blockEvents = []; }
-                
+                } catch (err) { blockEvents = []; }
+
                 if (txsFound < 20) {
                     signedBlock.block.extrinsics.forEach((ex) => {
                         let isSender = ex.signer && ex.signer.toString() === address;
                         let isReceiver = false;
                         let amount = "";
-                        
+
                         if (ex.method.section === 'balances' && (ex.method.method === 'transfer' || ex.method.method === 'transferKeepAlive')) {
                             const dest = ex.method.args[0].toString();
                             if (dest === address) isReceiver = true;
                             amount = formatPDEX(ex.method.args[1].toString());
                         }
-                        
+
                         if (isSender || isReceiver) {
                             accountData.transactions.push({
                                 hash: ex.hash.toHex(),
@@ -682,7 +662,7 @@ async function crawlAccountHistory(address) {
                         }
                     });
                 }
-                
+
                 if (evsFound < 20) {
                     blockEvents.forEach((record) => {
                         const { event } = record;
@@ -705,49 +685,49 @@ async function crawlAccountHistory(address) {
                         }
                     });
                 }
-                
+
                 currentHash = signedBlock.block.header.parentHash;
-            } catch(e) {
+            } catch (e) {
                 try {
                     const header = await globalApi.rpc.chain.getHeader(currentHash);
                     currentHash = header.parentHash;
-                } catch(err) { break; }
+                } catch (err) { break; }
             }
-            
+
             blocksSearched++;
             if (blocksSearched % 500 === 0) {
                 console.log(`Account crawler (${address}): searched ${blocksSearched} blocks... txs=${txsFound}, evs=${evsFound}`);
             }
         }
-        
+
         accountData.status = 'Synced';
         accountData.lastSync = Date.now();
-        
+
         try {
             const fileData = await fs.readFile(ACCOUNT_CACHE_FILE, 'utf8');
             const cache = JSON.parse(fileData);
             cache.accounts[address] = accountData;
             await fs.writeFile(ACCOUNT_CACHE_FILE, JSON.stringify(cache, null, 2));
-        } catch(e) {}
-        
+        } catch (e) { }
+
         console.log(`Finished background deep crawl for account ${address}`);
-        
-    } catch(e) {
+
+    } catch (e) {
         console.error(`Crawler error for ${address}:`, e.message);
     }
-    
+
     isCrawlingAccount[address] = false;
 }
 
 app.get('/api/account/:address', async (req, res) => {
     const address = req.params.address.trim();
-    if (!globalApi) return res.status(500).json({error: 'API not ready'});
+    if (!globalApi) return res.status(500).json({ error: 'API not ready' });
     try {
         const accountInfo = await globalApi.query.system.account(address);
         const name = await getIdentity(globalApi, address);
-        const free = Number(accountInfo.data.free) / 10**12;
-        const reserved = Number(accountInfo.data.reserved) / 10**12;
-        
+        const free = Number(accountInfo.data.free) / 10 ** 12;
+        const reserved = Number(accountInfo.data.reserved) / 10 ** 12;
+
         let roles = "User";
         try {
             if (globalApi.query.technicalCommittee && globalApi.query.technicalCommittee.members) {
@@ -758,7 +738,7 @@ app.get('/api/account/:address', async (req, res) => {
                 const councilMembers = await globalApi.query.council.members();
                 if (councilMembers.map(m => m.toString()).includes(address)) roles = "CouncilMember";
             }
-        } catch(e) {}
+        } catch (e) { }
 
         let txs = [];
         let evs = [];
@@ -770,7 +750,7 @@ app.get('/api/account/:address', async (req, res) => {
             if (index !== -1) {
                 rank = (index + 1).toString();
             }
-        } catch(e) {}
+        } catch (e) { }
         let status = 'Synced';
         try {
             const accDataStr = await fs.readFile(ACCOUNT_CACHE_FILE, 'utf8');
@@ -780,8 +760,8 @@ app.get('/api/account/:address', async (req, res) => {
                 evs = accCache.accounts[address].events || [];
                 status = accCache.accounts[address].status || 'Synced';
             }
-        } catch(e) {}
-        
+        } catch (e) { }
+
         if (txs.length < 10 && evs.length < 10 && status !== 'Syncing') {
             status = 'Syncing';
             crawlAccountHistory(address); // Async background call
@@ -800,7 +780,7 @@ app.get('/api/account/:address', async (req, res) => {
             status: status
         });
     } catch (err) {
-        res.status(500).json({error: err.message});
+        res.status(500).json({ error: err.message });
     }
 });
 
@@ -812,8 +792,8 @@ app.get('/api/block/:id', async (req, res) => {
             hash = await globalApi.rpc.chain.getBlockHash(parseInt(id));
         }
         const signedBlock = await globalApi.rpc.chain.getBlock(hash);
-        if (!signedBlock) return res.status(404).json({error: "Block not found"});
-        
+        if (!signedBlock) return res.status(404).json({ error: "Block not found" });
+
         let timestamp = Date.now();
         signedBlock.block.extrinsics.forEach((ex) => {
             if (ex.method.section === 'timestamp' && ex.method.method === 'set') {
@@ -826,8 +806,8 @@ app.get('/api/block/:id', async (req, res) => {
             date: timestamp,
             block: signedBlock.toHuman().block
         });
-    } catch(err) {
-        res.status(500).json({error: err.message});
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
@@ -840,8 +820,8 @@ app.get('/api/extrinsic/:block/:txHash', async (req, res) => {
             hash = await globalApi.rpc.chain.getBlockHash(parseInt(blockId));
         }
         const signedBlock = await globalApi.rpc.chain.getBlock(hash);
-        if (!signedBlock) return res.status(404).json({error: "Block not found"});
-        
+        if (!signedBlock) return res.status(404).json({ error: "Block not found" });
+
         const extrinsics = signedBlock.block.extrinsics;
         let extIndex = -1;
         let targetExt = null;
@@ -852,11 +832,11 @@ app.get('/api/extrinsic/:block/:txHash', async (req, res) => {
                 break;
             }
         }
-        if (!targetExt) return res.status(404).json({error: "Extrinsic not found in block"});
-        
+        if (!targetExt) return res.status(404).json({ error: "Extrinsic not found in block" });
+
         const allEvents = await globalApi.query.system.events.at(hash);
-        const txEvents = allEvents.filter(record => 
-            record.phase.isApplyExtrinsic && 
+        const txEvents = allEvents.filter(record =>
+            record.phase.isApplyExtrinsic &&
             record.phase.asApplyExtrinsic.toNumber() === extIndex
         );
 
@@ -866,7 +846,7 @@ app.get('/api/extrinsic/:block/:txHash', async (req, res) => {
                 timestamp = ex.method.args[0].toNumber();
             }
         });
-        
+
         let status = "success";
         txEvents.forEach(e => {
             if (e.event.section === 'system' && e.event.method === 'ExtrinsicFailed') status = "failed";
@@ -883,8 +863,8 @@ app.get('/api/extrinsic/:block/:txHash', async (req, res) => {
             extrinsic: targetExt.toHuman(),
             events: txEvents.map(e => e.toHuman().event)
         });
-    } catch(err) {
-        res.status(500).json({error: err.message});
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
@@ -895,10 +875,10 @@ app.get('/api/validator/:address', async (req, res) => {
         try {
             const data = await fs.readFile(VALIDATOR_HISTORY_CACHE_FILE, 'utf8');
             historyData = JSON.parse(data);
-        } catch(e) {}
-        
+        } catch (e) { }
+
         let identity = await getIdentity(globalApi, address);
-        
+
         let controller = address;
         if (globalApi) {
             const bondedOpt = await globalApi.query.staking.bonded(address);
@@ -907,8 +887,8 @@ app.get('/api/validator/:address', async (req, res) => {
             }
         }
 
-        const eras = Object.keys(historyData).map(Number).sort((a,b) => b - a);
-        
+        const eras = Object.keys(historyData).map(Number).sort((a, b) => b - a);
+
         const history = [];
         for (const era of eras) {
             if (historyData[era] && historyData[era][address]) {
@@ -926,9 +906,9 @@ app.get('/api/validator/:address', async (req, res) => {
             const triggersData = await fs.readFile(VALIDATOR_TRIGGERS_CACHE_FILE, 'utf8');
             const triggersCache = JSON.parse(triggersData);
             if (triggersCache[address]) {
-                triggers = triggersCache[address].sort((a,b) => b.era - a.era); // most recent first
+                triggers = triggersCache[address].sort((a, b) => b.era - a.era); // most recent first
             }
-        } catch(e) {}
+        } catch (e) { }
 
         res.json({
             address: address,
@@ -939,7 +919,7 @@ app.get('/api/validator/:address', async (req, res) => {
         });
 
     } catch (err) {
-        res.status(500).json({error: err.message});
+        res.status(500).json({ error: err.message });
     }
 });
 
@@ -950,22 +930,22 @@ async function syncHistoricalEras() {
         try {
             const data = await fs.readFile(VALIDATOR_HISTORY_CACHE_FILE, 'utf8');
             historyData = JSON.parse(data);
-        } catch(e) {}
+        } catch (e) { }
 
         const activeEraOption = await globalApi.query.staking.activeEra();
         if (activeEraOption.isNone) return;
         const currentEra = activeEraOption.unwrap().index.toNumber();
-        
+
         for (let era = currentEra - 1; era >= currentEra - 30; era--) {
             if (era < 0) break;
-            if (historyData[era]) continue; 
+            if (historyData[era]) continue;
 
             console.log(`Syncing historical era ${era}...`);
             const eraData = {};
 
             const rewardOpt = await globalApi.query.staking.erasValidatorReward(era);
-            if (rewardOpt.isNone) continue; 
-            const totalReward = Number(rewardOpt.unwrap().toString()) / 10**12;
+            if (rewardOpt.isNone) continue;
+            const totalReward = Number(rewardOpt.unwrap().toString()) / 10 ** 12;
 
             const points = await globalApi.query.staking.erasRewardPoints(era);
             const totalPoints = points.total.toNumber();
@@ -977,18 +957,18 @@ async function syncHistoricalEras() {
             const prefsParsed = {};
             for (const [key, val] of prefsMap) {
                 const address = key.args[1].toString();
-                const comm = val.commission.toNumber() / 1e7; 
+                const comm = val.commission.toNumber() / 1e7;
                 prefsParsed[address] = comm;
             }
 
             for (const [key, val] of stakersMap) {
                 const address = key.args[1].toString();
-                const totalStake = Number(val.total.toString()) / 10**12;
+                const totalStake = Number(val.total.toString()) / 10 ** 12;
                 const comm = prefsParsed[address] || 0;
-                
+
                 const valPointsStr = points.individual.get(address);
                 const valPoints = valPointsStr ? valPointsStr.toNumber() : 0;
-                
+
                 const valEraReward = totalReward * (valPoints / totalPoints);
                 let apy = 0;
                 if (totalStake > 0) {
@@ -1012,13 +992,13 @@ async function syncHistoricalEras() {
         try {
             const triggersData = await fs.readFile(VALIDATOR_TRIGGERS_CACHE_FILE, 'utf8');
             triggers = JSON.parse(triggersData);
-        } catch(e) {}
+        } catch (e) { }
 
-        const eras = Object.keys(historyData).map(Number).sort((a,b) => a - b);
+        const eras = Object.keys(historyData).map(Number).sort((a, b) => a - b);
         for (let i = 1; i < eras.length; i++) {
-            const prevEra = eras[i-1];
+            const prevEra = eras[i - 1];
             const currEra = eras[i];
-            
+
             for (const address in historyData[currEra]) {
                 if (historyData[prevEra][address]) {
                     const prevComm = historyData[prevEra][address].commission;
@@ -1040,7 +1020,7 @@ async function syncHistoricalEras() {
         }
         await fs.writeFile(VALIDATOR_TRIGGERS_CACHE_FILE, JSON.stringify(triggers, null, 2));
 
-    } catch(e) {
+    } catch (e) {
         console.error("Error in syncHistoricalEras:", e.message);
     }
 }
@@ -1050,7 +1030,7 @@ async function start() {
     const wsProvider = new WsProvider('wss://so.polkadex.ee');
     globalApi = await ApiPromise.create({ provider: wsProvider });
     console.log("Connected to Polkadex RPC");
-    
+
     app.listen(3001, () => {
         console.log("Backend indexer listening on port 3001");
     });
@@ -1061,12 +1041,16 @@ async function start() {
     syncTransactions();
     syncBlocks();
     syncEvents();
-    
+
     // Sync every 10 minutes
     setInterval(() => {
         syncData();
         syncHolders();
         syncHistoricalEras();
+        //Keep the indexes updated
+        syncTransactions();
+        syncBlocks();
+        syncEvents();
     }, 10 * 60 * 1000);
 }
 

@@ -10,7 +10,7 @@ services:
     ports:
       - "3001:3001"
     volumes:
-      - cache_data:/app
+      - cache_data:/app/data
 
   frontend:
     build:
