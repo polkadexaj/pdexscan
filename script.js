@@ -190,7 +190,7 @@ function subscribeNewBlocks(api) {
                 author: author,
                 timestamp: Date.now(),
                 extrinsics: signedBlock.block.extrinsics.length,
-                events: 0 // <--- CHANGED THIS
+                events: 0 // <--- FIX HERE
             };
 
             blocks.unshift(newBlock);
@@ -203,7 +203,7 @@ function subscribeNewBlocks(api) {
                 authorAddress: author,
                 authorName: author,
                 extrinsicsCount: signedBlock.block.extrinsics.length,
-                eventsCount: 0, // <--- CHANGED THIS
+                eventsCount: 0, // <--- FIX HERE
                 timestamp: Date.now()
             };
 
@@ -531,16 +531,16 @@ async function fetchBlocks() {
     if (blocksFetched) return;
     try {
         if (!fullBlocksListEl) return;
-        fullBlocksListEl.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 20px;">Fetching from indexer...</td></tr>';
+        fullBlocksListEl.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 20px;">Fetching from backend indexer...</td></tr>';
 
         const response = await fetch('/api/blocks');
         const data = await response.json();
 
-        // Add safety check so undefined arrays don't crash slice()
-        if (data.error || !data.blocks) throw new Error(data.error || "Missing blocks data");
+        // Safety guard: Ensure data.blocks actually exists before checking length
+        if (data.error || !data.blocks) throw new Error(data.error || "Blocks cache empty");
 
         if (data.status === 'Initializing' || (data.status === 'Syncing' && data.blocks.length === 0)) {
-            fullBlocksListEl.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 20px; color: orange;">Indexer is syncing, please wait...</td></tr>';
+            fullBlocksListEl.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 20px; color: orange;">Indexer is crawling historical blocks, please wait...</td></tr>';
             setTimeout(() => { blocksFetched = false; fetchBlocks(); }, 5000);
             return;
         }
@@ -548,8 +548,10 @@ async function fetchBlocks() {
         fullBlocks = data.blocks;
         blocksFetched = true;
         renderFullBlocks();
+
     } catch (err) {
-        fullBlocksListEl.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 20px; color: var(--error);">Error: ${err.message}</td></tr>`;
+        console.error("Error fetching blocks:", err);
+        fullBlocksListEl.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 20px; color: var(--error);">Backend Syncing. Please refresh.</td></tr>`;
     }
 }
 

@@ -7,150 +7,45 @@ import path from 'path';
 const app = express();
 app.use(cors());
 
-// Use a dedicated data directory to prevent Docker volume conflicts
+// Use a dedicated data folder for Docker volumes
 const DATA_DIR = path.join(process.cwd(), 'data');
 const CACHE_FILE = path.join(DATA_DIR, 'cache.json');
 const HOLDERS_CACHE_FILE = path.join(DATA_DIR, 'holders_cache.json');
+const TX_CACHE_FILE = path.join(DATA_DIR, 'transactions_cache.json');
+const BLOCKS_CACHE_FILE = path.join(DATA_DIR, 'blocks_cache.json');
+const EVENTS_CACHE_FILE = path.join(DATA_DIR, 'events_cache.json');
 const VALIDATOR_HISTORY_CACHE_FILE = path.join(DATA_DIR, 'validator_history_cache.json');
 
-const SUBQUERY_URL = 'https://sq-indexer.polkadex.ee';
-let globalApi = null;
 let isSyncing = false;
-let isSyncingHolders = false;
+let isSyncingBlocks = false;
+let isSyncingTx = false;
+let isSyncingEvents = false;
+let globalApi = null;
 
-// Ensure cache directory exists
 async function initCache() {
     try { await fs.mkdir(DATA_DIR, { recursive: true }); } catch (e) { }
-    try { await fs.access(CACHE_FILE); } catch { await fs.writeFile(CACHE_FILE, JSON.stringify({ validators: [], lastSync: 0, status: 'Initializing' })); }
-    try { await fs.access(HOLDERS_CACHE_FILE); } catch { await fs.writeFile(HOLDERS_CACHE_FILE, JSON.stringify({ holders: [], lastSync: 0, status: 'Initializing' })); }
+    const files = [CACHE_FILE, HOLDERS_CACHE_FILE, TX_CACHE_FILE, BLOCKS_CACHE_FILE, EVENTS_CACHE_FILE, VALIDATOR_HISTORY_CACHE_FILE];
+    for (const file of files) {
+        try { await fs.access(file); } catch { await fs.writeFile(file, JSON.stringify({ status: 'Initializing' })); }
+    }
 }
 
-function formatPDEX(balance) { return Number(balance) / 10 ** 12; }
+// Fallback API Endpoints to prevent frontend crashes
+app.get('/api/validators', async (req, res) => { try { res.json(JSON.parse(await fs.readFile(CACHE_FILE, 'utf8'))); } catch (err) { res.json({ validators: [], status: 'Syncing' }); } });
+app.get('/api/holders', async (req, res) => { try { res.json(JSON.parse(await fs.readFile(HOLDERS_CACHE_FILE, 'utf8'))); } catch (err) { res.json({ holders: [], status: 'Syncing' }); } });
+app.get('/api/blocks', async (req, res) => { try { res.json(JSON.parse(await fs.readFile(BLOCKS_CACHE_FILE, 'utf8'))); } catch (err) { res.json({ blocks: [], status: 'Syncing' }); } });
+app.get('/api/transactions', async (req, res) => { try { res.json(JSON.parse(await fs.readFile(TX_CACHE_FILE, 'utf8'))); } catch (err) { res.json({ transactions: [], status: 'Syncing' }); } });
+app.get('/api/events', async (req, res) => { try { res.json(JSON.parse(await fs.readFile(EVENTS_CACHE_FILE, 'utf8'))); } catch (err) { res.json({ events: [], status: 'Syncing' }); } });
 
-async function fetchSubQuery(query) {
-    const response = await fetch(SUBQUERY_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query })
-    });
-    if (!response.ok) throw new Error(`SubQuery Error: ${response.statusText}`);
-    return await response.json();
-}
+// --- CRAWLERS ---
 
-// --- HISTORICAL DATA ROUTES (Powered by SubQuery) ---
-
-app.get('/api/blocks', async (req, res) => {
-    try {
-        const query = `
-            query {
-                blocks(first: 200, orderBy: NUMBER_DESC) {
-                    nodes {
-                        id
-                        number
-                        hash
-                        timestamp
-                    }
-                }
-            }
-        `;
-        const sqData = await fetchSubQuery(query);
-        const blocks = sqData.data.blocks.nodes.map(b => ({
-            number: parseInt(b.number),
-            hash: b.hash,
-            authorAddress: "System", // Or map from SubQuery if indexed
-            authorName: "System",
-            extrinsicsCount: 0, // SubQuery schemas vary, defaulting for UI safety
-            eventsCount: 0,
-            timestamp: new Date(b.timestamp).getTime()
-        }));
-
-        res.json({ blocks, status: 'Synced' });
-    } catch (err) {
-        console.error("SubQuery Blocks Error:", err.message);
-        res.json({ blocks: [], status: 'Syncing', error: err.message });
-    }
-});
-
-app.get('/api/transactions', async (req, res) => {
-    try {
-        const query = `
-            query {
-                extrinsics(first: 200, orderBy: BLOCK_NUMBER_DESC, filter: { isSigned: { equalTo: true } }) {
-                    nodes {
-                        id
-                        hash
-                        blockId
-                        signer
-                        method
-                        section
-                        timestamp
-                        success
-                    }
-                }
-            }
-        `;
-        const sqData = await fetchSubQuery(query);
-        const transactions = sqData.data.extrinsics.nodes.map(tx => ({
-            hash: tx.hash,
-            from: tx.signer,
-            to: tx.method, // Can be mapped deeper based on exact SQ schema
-            block: parseInt(tx.blockId),
-            amount: "Tx",
-            numericAmount: 0,
-            value: '0$',
-            status: tx.success ? 'success' : 'failed',
-            timestamp: new Date(tx.timestamp).getTime()
-        }));
-
-        res.json({ transactions, status: 'Synced' });
-    } catch (err) {
-        console.error("SubQuery Txs Error:", err.message);
-        res.json({ transactions: [], status: 'Syncing' });
-    }
-});
-
-app.get('/api/events', async (req, res) => {
-    try {
-        const query = `
-            query {
-                events(first: 200, orderBy: BLOCK_NUMBER_DESC) {
-                    nodes {
-                        id
-                        blockId
-                        section
-                        method
-                        timestamp
-                    }
-                }
-            }
-        `;
-        const sqData = await fetchSubQuery(query);
-        const events = sqData.data.events.nodes.map(ev => ({
-            hash: ev.id,
-            block: parseInt(ev.blockId),
-            section: ev.section,
-            method: ev.method,
-            signerAddress: "System",
-            signerName: "Unknown",
-            timestamp: new Date(ev.timestamp).getTime(),
-            status: 'success'
-        }));
-        res.json({ events, status: 'Synced' });
-    } catch (err) {
-        res.json({ events: [], status: 'Syncing' });
-    }
-});
-
-// --- LIVE STATE INDEXERS (Powered by @polkadot/api RPC) ---
-
-async function syncData() {
+async function syncValidators() {
     if (isSyncing || !globalApi) return;
     isSyncing = true;
     try {
         console.log("Syncing active validators...");
         const activeEraOption = await globalApi.query.staking.activeEra();
         const activeEra = activeEraOption.isSome ? activeEraOption.unwrap().index.toNumber() : 0;
-
         const validators = await globalApi.query.session.validators();
         const validatorData = [];
 
@@ -158,7 +53,7 @@ async function syncData() {
             const addrStr = address.toString();
             let totalStake = 0;
 
-            // Fixed for Substrate Runtime Upgrades
+            // Substrate Runtime Upgrade Fix
             if (globalApi.query.staking.erasStakersOverview) {
                 const overviewOpt = await globalApi.query.staking.erasStakersOverview(activeEra, address);
                 if (overviewOpt.isSome) totalStake = overviewOpt.unwrap().total;
@@ -168,45 +63,77 @@ async function syncData() {
             }
 
             const prefs = await globalApi.query.staking.validators(address);
-            let rawCommission = prefs.commission ? prefs.commission.unwrap ? prefs.commission.unwrap().toNumber() : prefs.commission.toNumber() : 0;
+            let rawCommission = prefs.commission ? (prefs.commission.unwrap ? prefs.commission.unwrap().toNumber() : prefs.commission.toNumber()) : 0;
             const commissionPct = (rawCommission / 1000000000) * 100;
 
             validatorData.push({
                 address: addrStr,
-                name: addrStr.substring(0, 8), // Replaced heavy identity fetch for speed
-                totalStake: formatPDEX(totalStake),
+                name: addrStr.substring(0, 8), // Fast identity
+                totalStake: Number(totalStake) / 10 ** 12,
                 commission: commissionPct,
                 realApy: 23.09 * (1 - (commissionPct / 100)),
                 avg30DayApy: 23.09 * (1 - (commissionPct / 100))
             });
         }
-
         await fs.writeFile(CACHE_FILE, JSON.stringify({ validators: validatorData, totalCount: validators.length, lastSync: Date.now(), status: 'Synced' }));
-        console.log(`Synced ${validatorData.length} validators.`);
-    } catch (err) {
-        console.error("Validator Sync error:", err);
-    } finally {
-        isSyncing = false;
-    }
+    } catch (err) { console.error("Validator Sync error:", err); } finally { isSyncing = false; }
 }
 
-app.get('/api/validators', async (req, res) => {
-    try { res.json(JSON.parse(await fs.readFile(CACHE_FILE, 'utf8'))); }
-    catch (err) { res.json({ validators: [], status: 'Syncing' }); }
-});
+async function syncBlocks() {
+    if (isSyncingBlocks || !globalApi) return;
+    isSyncingBlocks = true;
+    try {
+        let cacheData = { blocks: [], status: 'Syncing' };
+        try { cacheData = JSON.parse(await fs.readFile(BLOCKS_CACHE_FILE, 'utf8')); } catch (e) { }
+
+        let currentHash = await globalApi.rpc.chain.getBlockHash();
+        let blocksSearched = 0;
+        const newBlocks = cacheData.blocks ? [...cacheData.blocks] : [];
+
+        // Continuous crawler: search top 50 blocks every interval to catch updates
+        while (blocksSearched < 50) {
+            try {
+                const derivedBlock = await globalApi.derive.chain.getBlock(currentHash);
+                if (derivedBlock) {
+                    const blockNumber = derivedBlock.block.header.number.toNumber();
+                    if (!newBlocks.find(b => b.number === blockNumber)) {
+                        newBlocks.push({
+                            number: blockNumber,
+                            hash: derivedBlock.block.header.hash.toHex(),
+                            authorAddress: derivedBlock.author ? derivedBlock.author.toString() : "System",
+                            extrinsicsCount: derivedBlock.block.extrinsics.length,
+                            eventsCount: derivedBlock.events ? derivedBlock.events.length : 0,
+                            timestamp: Date.now()
+                        });
+                    } else { break; } // Caught up to cached history
+                    currentHash = derivedBlock.block.header.parentHash;
+                } else { break; }
+            } catch (e) { break; }
+            blocksSearched++;
+        }
+
+        cacheData.blocks = newBlocks.sort((a, b) => b.number - a.number).slice(0, 200);
+        cacheData.status = 'Synced';
+        await fs.writeFile(BLOCKS_CACHE_FILE, JSON.stringify(cacheData));
+    } catch (err) { } finally { isSyncingBlocks = false; }
+}
 
 async function start() {
     await initCache();
     const wsProvider = new WsProvider('wss://so.polkadex.ee');
     globalApi = await ApiPromise.create({ provider: wsProvider });
-    console.log("Connected to Polkadex RPC. Using SubQuery for historical data.");
+    console.log("Connected to Polkadex RPC");
 
-    app.listen(3001, () => {
-        console.log("Backend indexer listening on port 3001");
-    });
+    app.listen(3001, () => { console.log("Backend indexer listening on port 3001"); });
 
-    await syncData();
-    setInterval(syncData, 10 * 60 * 1000);
+    syncValidators();
+    syncBlocks();
+
+    // Continuous sync loop
+    setInterval(() => {
+        syncValidators();
+        syncBlocks();
+        // Add your other sync functions here...
+    }, 5 * 60 * 1000); // Check every 5 mins
 }
-
 start();
