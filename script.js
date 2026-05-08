@@ -158,6 +158,7 @@ function subscribeNewBlocks(api) {
             // Extract transactions
             signedBlock.block.extrinsics.forEach((ex) => {
                 const summary = getLiveExtrinsicAmountSummary(ex);
+                if (summary.amount === '-') return;
                 const tx = {
                     hash: ex.hash.toHex(),
                     from: ex.isSigned ? ex.signer.toString() : "System",
@@ -277,11 +278,12 @@ function renderBlocks() {
 
 function renderTransactions() {
     transactionsListEl.innerHTML = '';
-    if (transactions.length === 0) {
-        transactionsListEl.innerHTML = '<div style="padding: 20px; color: var(--text-muted); font-size: 0.9rem;">Waiting for new signed transactions...</div>';
+    const financialTransactions = transactions.filter(isFinancialTransactionRow);
+    if (financialTransactions.length === 0) {
+        transactionsListEl.innerHTML = '<div style="padding: 20px; color: var(--text-muted); font-size: 0.9rem;">Waiting for financial transactions...</div>';
         return;
     }
-    transactions.forEach((tx, index) => {
+    financialTransactions.forEach((tx, index) => {
         tx = normalizeTransactionRow(tx);
         const el = document.createElement('div');
         el.className = `list-item ${index === 0 ? 'animate-in' : ''}`;
@@ -300,7 +302,7 @@ function renderTransactions() {
                         From: ${tx.from === 'System' ? shortFrom : `<a href="#account/${tx.from}" class="item-link">${shortFrom}</a>`}
                     </div>
                     <div class="item-sub">
-                        To/Method: ${tx.to === tx.amount ? shortTo : `<a href="#account/${tx.to}" class="item-link">${shortTo}</a>`}
+                        To: ${tx.to === tx.amount ? shortTo : `<a href="#account/${tx.to}" class="item-link">${shortTo}</a>`}
                     </div>
                 </div>
             </div>
@@ -545,7 +547,7 @@ async function fetchTransactions(force = false) {
             return;
         }
 
-        transactions = data.transactions;
+        transactions = data.transactions.filter(isFinancialTransactionRow);
         txFetched = true;
         sortTransactions();
         renderFullTransactions();
@@ -559,7 +561,8 @@ async function fetchTransactions(force = false) {
 function renderFullTransactions() {
     if (!fullTransactionsListEl) return;
     let html = '';
-    const toDisplay = transactions.slice(0, txDisplayLimit);
+    const financialTransactions = transactions.filter(isFinancialTransactionRow);
+    const toDisplay = financialTransactions.slice(0, txDisplayLimit);
 
     for (const rawTx of toDisplay) {
         const tx = normalizeTransactionRow(rawTx);
@@ -584,13 +587,16 @@ function renderFullTransactions() {
             </tr>
         `;
     }
+    if (toDisplay.length === 0) {
+        html = '<tr><td colspan="8" style="text-align:center; padding: 20px; color: var(--text-muted);">No recent financial transactions found.</td></tr>';
+    }
 
     fullTransactionsListEl.innerHTML = html;
-    if (txCountEl) txCountEl.innerText = `${transactions.length} Records`;
+    if (txCountEl) txCountEl.innerText = `${financialTransactions.length} Records`;
 
     const showMoreTxBtn = document.getElementById('show-more-tx-btn');
     if (showMoreTxBtn) {
-        if (txDisplayLimit < transactions.length) {
+        if (txDisplayLimit < financialTransactions.length) {
             showMoreTxBtn.style.display = 'inline-block';
         } else {
             showMoreTxBtn.style.display = 'none';
@@ -603,6 +609,10 @@ function normalizeTransactionRow(tx) {
         return { ...tx, method: tx.method || tx.amount, to: tx.method || tx.amount, amount: '-', numericAmount: 0, value: '-' };
     }
     return tx;
+}
+
+function isFinancialTransactionRow(tx) {
+    return tx && tx.amount !== '-' && tx.amount !== undefined && tx.amount !== null;
 }
 
 async function fetchBlocks(force = false) {
