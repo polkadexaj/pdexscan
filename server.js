@@ -205,6 +205,10 @@ function normalizeTransactionRecord(tx) {
     return tx;
 }
 
+function isFinancialTransactionRecord(tx) {
+    return tx && tx.amount !== '-' && tx.amount !== undefined && tx.amount !== null;
+}
+
 async function applyDisplayNameOverridesToHolders(holders) {
     return Promise.all(holders.map(async holder => {
         if (!DISPLAY_NAME_OVERRIDES.has(holder.address)) return holder;
@@ -230,7 +234,9 @@ app.get('/api/holders', async (req, res) => {
 app.get('/api/transactions', async (req, res) => {
     try {
         const cacheData = await readJsonCache(TX_CACHE_FILE, CACHE_DEFAULTS.get(TX_CACHE_FILE));
-        cacheData.transactions = cacheData.transactions.map(normalizeTransactionRecord);
+        cacheData.transactions = cacheData.transactions
+            .map(normalizeTransactionRecord)
+            .filter(isFinancialTransactionRecord);
         res.json(cacheData);
     } catch (err) { res.json(CACHE_DEFAULTS.get(TX_CACHE_FILE)); }
 });
@@ -494,7 +500,9 @@ async function syncTransactions() {
         cacheData = await readJsonCache(TX_CACHE_FILE, CACHE_DEFAULTS.get(TX_CACHE_FILE));
         let currentHash = await globalApi.rpc.chain.getBlockHash();
         let blocksSearched = 0;
-        const newTransactions = cacheData.transactions ? [...cacheData.transactions] : [];
+        const newTransactions = cacheData.transactions
+            ? cacheData.transactions.map(normalizeTransactionRecord).filter(isFinancialTransactionRecord)
+            : [];
 
         while (blocksSearched < 50) {
             try {
@@ -506,6 +514,7 @@ async function syncTransactions() {
                 signedBlock.block.extrinsics.forEach((ex, index) => {
                     const hash = ex.hash.toHex();
                     const summary = getExtrinsicAmountSummary(ex);
+                    if (summary.amount === '-') return;
                     const txData = {
                         hash,
                         from: ex.isSigned ? ex.signer.toString() : "System",
