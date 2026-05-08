@@ -13,6 +13,22 @@ function formatPDEX(balance) {
     return (Number(balance) / 10 ** 12).toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
+function formatNetworkNumber(value, maximumFractionDigits = 1) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return 'Loading...';
+    return number.toLocaleString('en-US', { maximumFractionDigits });
+}
+
+function setText(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.innerText = value;
+}
+
+function setHtml(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = value;
+}
+
 // DOM Elements
 const blocksListEl = document.getElementById('blocks-list');
 const transactionsListEl = document.getElementById('transactions-list');
@@ -23,7 +39,7 @@ const networkStatusText = document.querySelector('.network-status span');
 
 const issuanceEl = document.querySelector('.stat-card:nth-child(2) .stat-value');
 const stakeEl = document.querySelector('.stat-card:nth-child(3) .stat-value');
-const currentEraEl = document.querySelector('.info-item:nth-child(1) .value');
+const currentEraEl = document.getElementById('network-current-era');
 
 const validatorsListEl = document.getElementById('validators-list');
 const validatorCountEl = document.querySelector('.validator-count');
@@ -50,6 +66,9 @@ let blockDisplayLimit = 50;
 let transactions = [];
 let txFetched = false;
 let txDisplayLimit = 50;
+let olderTxBeforeBlock = null;
+let transactionCacheMeta = {};
+let isLoadingOlderTx = false;
 let fullEvents = [];
 let eventsFetched = false;
 let eventDisplayLimit = 50;
@@ -70,14 +89,8 @@ async function init() {
         statusIndicator.classList.add('live');
         statusIndicator.style.background = 'var(--success)';
 
-        // Initial hash routing
-        const hash = window.location.hash.substring(1);
-        if (hash) {
-            routeTo(hash);
-        } else {
-            routeTo('dashboard');
-        }
         fetchNetworkStats(globalApi);
+        fetchNetworkInformation();
 
         // Fetch initial dashboard data so it isn't empty on load
         try {
@@ -88,15 +101,15 @@ async function init() {
             if (txRes) {
                 const txData = await txRes.json();
                 if (txData.transactions && txData.transactions.length > 0) {
-                    transactions = txData.transactions;
-                    if (window.location.hash === '' || window.location.hash === '#dashboard') renderTransactions();
+                    transactions = financialTransactionRows(txData.transactions);
+                    if (window.location.hash === '') renderTransactions();
                 }
             }
             if (bRes) {
                 const bData = await bRes.json();
                 if (bData.blocks && bData.blocks.length > 0) {
                     blocks = bData.blocks;
-                    if (window.location.hash === '' || window.location.hash === '#dashboard') renderBlocks();
+                    if (window.location.hash === '') renderBlocks();
                 }
             }
         } catch (e) { }
@@ -112,9 +125,8 @@ async function init() {
         statusIndicator.classList.remove('live');
     }
 
-    // Initialize Routing based on hash
-    let hash = window.location.hash.substring(1);
-    routeTo(hash || 'home');
+    // Initialize routing once after data subscriptions are ready.
+    routeTo(window.location.hash.substring(1) || 'home');
 }
 
 async function fetchNetworkStats(api) {
@@ -135,6 +147,29 @@ async function fetchNetworkStats(api) {
         }
     } catch (err) {
         console.error("Error fetching stats:", err);
+    }
+}
+
+async function fetchNetworkInformation() {
+    try {
+        const response = await fetch('/api/network-info');
+        const data = await response.json();
+        if (!data.networkInfo) return;
+        const info = data.networkInfo;
+
+        setText('network-current-era', info.activeEra);
+        setText('network-validators', `${info.validators.active} / ${info.validators.total}`);
+        setText('network-nominators', `${info.nominators.active} / ${info.nominators.total}`);
+        setHtml('network-max-active-stake', `${formatNetworkNumber(info.maxActiveStake, 0)} <span class="unit">PDEX</span>`);
+        setText('network-avg-commission', `${formatNetworkNumber(info.avgValidatorCommission, 3)}%`);
+        setText('network-min-stake', `${formatNetworkNumber(info.minStake, 0)} PDEX`);
+        setText('network-average-stake', `${formatNetworkNumber(info.averageStake, 1)} PDEX`);
+        setText('network-avg-stake-account', `${formatNetworkNumber(info.avgStakePerAccount, 1)} PDEX`);
+        setText('network-total-bonding', `${formatNetworkNumber(info.totalBonding, 0)} PDEX / ${formatNetworkNumber(info.totalBondingPercent, 0)}%`);
+        setText('network-total-unbonding', `-${formatNetworkNumber(info.totalUnbonding, 0)} PDEX`);
+        setText('network-last-era-rewards', `${formatNetworkNumber(info.lastEraRewardsTotal, 0)} PDEX`);
+    } catch (err) {
+        console.error("Error fetching network information:", err);
     }
 }
 
@@ -187,7 +222,7 @@ function subscribeNewBlocks(api) {
                 author = "Validator " + String(preRuntime.value.toHex()).substring(0, 8);
             }
 
-            const newBlock = {
+            const completedBlock = {
                 number: blockNumber,
                 hash: signedBlock.block.header.hash.toHex(),
                 author: author,
@@ -196,7 +231,7 @@ function subscribeNewBlocks(api) {
                 events: 0 // <--- FIX HERE
             };
 
-            blocks.unshift(newBlock);
+            blocks.unshift(completedBlock);
             if (blocks.length > 10) blocks.pop();
             renderBlocks();
 
@@ -278,13 +313,12 @@ function renderBlocks() {
 
 function renderTransactions() {
     transactionsListEl.innerHTML = '';
-    const financialTransactions = transactions.filter(isFinancialTransactionRow);
+    const financialTransactions = financialTransactionRows(transactions);
     if (financialTransactions.length === 0) {
         transactionsListEl.innerHTML = '<div style="padding: 20px; color: var(--text-muted); font-size: 0.9rem;">Waiting for financial transactions...</div>';
         return;
     }
     financialTransactions.forEach((tx, index) => {
-        tx = normalizeTransactionRow(tx);
         const el = document.createElement('div');
         el.className = `list-item ${index === 0 ? 'animate-in' : ''}`;
 
@@ -292,12 +326,15 @@ function renderTransactions() {
         const shortFrom = tx.from.substring(0, 8) + '...';
         let shortTo = tx.to.toString();
         if (shortTo.length > 10) shortTo = shortTo.substring(0, 8) + '...';
+        const titleHtml = tx.eventDerived
+            ? `<a href="#block/${tx.block}" class="item-title">${shortHash}</a>`
+            : `<a href="#tx/${tx.block}/${tx.hash}" class="item-title">${shortHash}</a>`;
 
         el.innerHTML = `
             <div class="item-main">
                 <div class="item-icon"><i class='bx bx-transfer'></i></div>
                 <div class="item-details">
-                    <a href="#tx/${tx.block}/${tx.hash}" class="item-title">${shortHash}</a>
+                    ${titleHtml}
                     <div class="item-sub">
                         From: ${tx.from === 'System' ? shortFrom : `<a href="#account/${tx.from}" class="item-link">${shortFrom}</a>`}
                     </div>
@@ -547,7 +584,12 @@ async function fetchTransactions(force = false) {
             return;
         }
 
-        transactions = data.transactions.filter(isFinancialTransactionRow);
+        transactions = financialTransactionRows(data.transactions);
+        transactionCacheMeta = {
+            latestScannedBlock: data.latestScannedBlock,
+            oldestScannedBlock: data.oldestScannedBlock,
+            scannedBlocks: data.scannedBlocks
+        };
         txFetched = true;
         sortTransactions();
         renderFullTransactions();
@@ -561,7 +603,7 @@ async function fetchTransactions(force = false) {
 function renderFullTransactions() {
     if (!fullTransactionsListEl) return;
     let html = '';
-    const financialTransactions = transactions.filter(isFinancialTransactionRow);
+    const financialTransactions = financialTransactionRows(transactions);
     const toDisplay = financialTransactions.slice(0, txDisplayLimit);
 
     for (const rawTx of toDisplay) {
@@ -573,10 +615,13 @@ function renderFullTransactions() {
 
         const dateObj = new Date(tx.timestamp);
         const dateStr = `${timeAgo(tx.timestamp)} (${dateObj.toISOString().replace('T', ' ').substring(0, 19)})`;
+        const hashCell = tx.eventDerived
+            ? `<a href="#block/${tx.block}" class="item-link">${shortHash}</a>`
+            : `<a href="#tx/${tx.block}/${tx.hash}" class="item-link">${shortHash}</a>`;
 
         html += `
             <tr>
-                <td class="address-cell"><a href="#tx/${tx.block}/${tx.hash}" class="item-link">${shortHash}</a></td>
+                <td class="address-cell">${hashCell}</td>
                 <td>${tx.from === 'System' ? shortFrom : `<a href="#account/${tx.from}" class="item-link">${shortFrom}</a>`}</td>
                 <td>${tx.to === tx.amount ? shortTo : `<a href="#account/${tx.to}" class="item-link">${shortTo}</a>`}</td>
                 <td style="color: var(--text-secondary);">${dateStr}</td>
@@ -593,6 +638,7 @@ function renderFullTransactions() {
 
     fullTransactionsListEl.innerHTML = html;
     if (txCountEl) txCountEl.innerText = `${financialTransactions.length} Records`;
+    updateOlderFinancialTxButton(financialTransactions.length === 0);
 
     const showMoreTxBtn = document.getElementById('show-more-tx-btn');
     if (showMoreTxBtn) {
@@ -604,6 +650,14 @@ function renderFullTransactions() {
     }
 }
 
+function updateOlderFinancialTxButton(show) {
+    const loadOlderBtn = document.getElementById('load-older-financial-tx-btn');
+    if (!loadOlderBtn) return;
+    loadOlderBtn.style.display = show ? 'inline-block' : 'none';
+    loadOlderBtn.disabled = isLoadingOlderTx;
+    loadOlderBtn.innerText = isLoadingOlderTx ? 'Loading older financial tx...' : 'Load Older 100 Financial Tx';
+}
+
 function normalizeTransactionRow(tx) {
     if (tx && typeof tx.amount === 'string' && tx.amount.includes('.') && (!tx.method || tx.value === 'System')) {
         return { ...tx, method: tx.method || tx.amount, to: tx.method || tx.amount, amount: '-', numericAmount: 0, value: '-' };
@@ -612,7 +666,59 @@ function normalizeTransactionRow(tx) {
 }
 
 function isFinancialTransactionRow(tx) {
-    return tx && tx.amount !== '-' && tx.amount !== undefined && tx.amount !== null;
+    if (!tx || tx.amount === '-' || tx.amount === undefined || tx.amount === null) return false;
+    if (tx.method) {
+        return [
+            'balances.transfer',
+            'balances.transferAllowDeath',
+            'balances.transferKeepAlive',
+            'balances.forceTransfer',
+            'balances.transferAll',
+            'balances.Transfer'
+        ].includes(tx.method);
+    }
+    return tx.amount === 'All' || (typeof tx.amount === 'string' && tx.amount.includes('PDEX'));
+}
+
+function financialTransactionRows(rows) {
+    return (rows || []).map(normalizeTransactionRow).filter(isFinancialTransactionRow);
+}
+
+async function loadOlderFinancialTransactions() {
+    if (isLoadingOlderTx) return;
+    isLoadingOlderTx = true;
+    updateOlderFinancialTxButton(true);
+    try {
+        const currentFinancialTx = financialTransactionRows(transactions);
+        const oldestLoadedBlock = currentFinancialTx.length > 0 ? Math.min(...currentFinancialTx.map(tx => tx.block)) : null;
+        const beforeBlock = olderTxBeforeBlock || oldestLoadedBlock || transactionCacheMeta.oldestScannedBlock;
+        const query = new URLSearchParams({ limit: '100' });
+        if (beforeBlock) query.set('beforeBlock', beforeBlock);
+
+        const response = await fetch(`/api/transactions/older?${query.toString()}`);
+        const data = await response.json();
+        if (data.error) throw new Error(data.error);
+
+        olderTxBeforeBlock = data.nextBeforeBlock || olderTxBeforeBlock;
+        const existingHashes = new Set(transactions.map(tx => tx.hash));
+        const olderRows = financialTransactionRows(data.transactions).filter(tx => !existingHashes.has(tx.hash));
+        transactions = financialTransactionRows([...transactions, ...olderRows]);
+        sortTransactions();
+        renderFullTransactions();
+
+        if (olderRows.length === 0 && fullTransactionsListEl) {
+            fullTransactionsListEl.innerHTML = `<tr><td colspan="8" style="text-align:center; padding: 20px; color: var(--text-muted);">No financial transactions found in the last ${data.scannedBlocks || 0} older blocks.</td></tr>`;
+            updateOlderFinancialTxButton(true);
+        }
+    } catch (err) {
+        console.error("Error loading older financial transactions:", err);
+        if (fullTransactionsListEl) {
+            fullTransactionsListEl.innerHTML = `<tr><td colspan="8" style="text-align:center; padding: 20px; color: var(--error);">Error loading older financial transactions: ${err.message}</td></tr>`;
+        }
+    } finally {
+        isLoadingOlderTx = false;
+        updateOlderFinancialTxButton(financialTransactionRows(transactions).length === 0);
+    }
 }
 
 async function fetchBlocks(force = false) {
@@ -690,7 +796,12 @@ async function refreshDashboardLists() {
         if (txRes) {
             const txData = await txRes.json();
             if (Array.isArray(txData.transactions)) {
-                transactions = txData.transactions;
+                transactions = financialTransactionRows(txData.transactions);
+                transactionCacheMeta = {
+                    latestScannedBlock: txData.latestScannedBlock,
+                    oldestScannedBlock: txData.oldestScannedBlock,
+                    scannedBlocks: txData.scannedBlocks
+                };
                 renderTransactions();
             }
         }
@@ -847,6 +958,11 @@ if (showMoreTxBtn) {
         txDisplayLimit += 50;
         renderFullTransactions();
     });
+}
+
+const loadOlderFinancialTxBtn = document.getElementById('load-older-financial-tx-btn');
+if (loadOlderFinancialTxBtn) {
+    loadOlderFinancialTxBtn.addEventListener('click', loadOlderFinancialTransactions);
 }
 
 const showMoreBlocksBtn = document.getElementById('show-more-blocks-btn');
@@ -1325,7 +1441,11 @@ async function fetchValidatorDetails(address) {
             const maxComm = Math.max(...data.history.map(h => h.commission));
             if (maxComm > 50) {
                 let triggersHtml = '';
+                let triggerActionHtml = '';
                 if (data.triggers && data.triggers.length > 0) {
+                    triggerActionHtml = `
+                        <br><button type="button" id="toggle-trigger-events" style="border: 0; background: transparent; color: #ff6b6b; font-weight: bold; text-decoration: underline; margin-top: 5px; display: inline-block; padding: 0; cursor: pointer;">go to trigger events</button>
+                    `;
                     triggersHtml = `
                         <div id="trigger-events-log" style="display: none; margin-top: 15px; border-top: 1px solid rgba(255, 50, 50, 0.2); padding-top: 15px;">
                             <strong style="display: block; margin-bottom: 10px;">Trigger Events Log:</strong>
@@ -1357,7 +1477,7 @@ async function fetchValidatorDetails(address) {
                     <div style="background: rgba(255, 50, 50, 0.1); border: 1px solid rgba(255, 50, 50, 0.3); padding: 15px; border-radius: 4px; margin-bottom: 20px;">
                         <div style="color: #ff6b6b; font-size: 13px; line-height: 1.5;">
                             Commission increase above threshold detected in validator network; max commission in 30 eras: ${maxComm.toFixed(2)}%; threshold: 50.00%
-                            <br><a href="javascript:void(0)" onclick="document.getElementById('trigger-events-log').style.display = document.getElementById('trigger-events-log').style.display === 'none' ? 'block' : 'none';" style="color: #ff6b6b; font-weight: bold; text-decoration: underline; margin-top: 5px; display: inline-block;">go to trigger events</a>
+                            ${triggerActionHtml}
                         </div>
                         ${triggersHtml}
                     </div>
@@ -1430,6 +1550,17 @@ async function fetchValidatorDetails(address) {
                 </div>
             </div>
         `;
+
+        const triggerToggle = document.getElementById('toggle-trigger-events');
+        const triggerLog = document.getElementById('trigger-events-log');
+        if (triggerToggle && triggerLog) {
+            triggerToggle.addEventListener('click', () => {
+                const shouldShow = triggerLog.style.display === 'none';
+                triggerLog.style.display = shouldShow ? 'block' : 'none';
+                triggerToggle.innerText = shouldShow ? 'hide trigger events' : 'go to trigger events';
+                if (shouldShow) triggerLog.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            });
+        }
 
         // Render Chart.js
         if (data.history.length > 0) {

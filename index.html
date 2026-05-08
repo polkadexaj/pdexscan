@@ -102,19 +102,19 @@
                 <section class="network-info-bar glass">
                     <div class="info-item">
                         <span class="label">Current Era</span>
-                        <span class="value">1679</span>
+                        <span class="value" id="network-current-era">1679</span>
                     </div>
                     <div class="info-item">
                         <span class="label">Validators</span>
-                        <span class="value">200 / 237</span>
+                        <span class="value" id="network-validators">200 / 237</span>
                     </div>
                     <div class="info-item">
                         <span class="label">Nominators</span>
-                        <span class="value">1728 / 2442</span>
+                        <span class="value" id="network-nominators">1728 / 2442</span>
                     </div>
                     <div class="info-item">
                         <span class="label">Max Active Stake</span>
-                        <span class="value">271,211 <span class="unit">PDEX</span></span>
+                        <span class="value" id="network-max-active-stake">271,211 <span class="unit">PDEX</span></span>
                     </div>
                 </section>
 
@@ -139,6 +139,42 @@
                         </div>
                         <div class="list-content" id="transactions-list">
                             <!-- Transactions populated by JS -->
+                        </div>
+                    </div>
+                </section>
+
+                <section class="network-details-section">
+                    <div class="section-heading">
+                        <h2>Network Information</h2>
+                    </div>
+                    <div class="network-details-grid" id="home-network-details">
+                        <div class="network-detail-item">
+                            <span class="label">AVG validator commission</span>
+                            <span class="value" id="network-avg-commission">Loading...</span>
+                        </div>
+                        <div class="network-detail-item">
+                            <span class="label">Min Stake</span>
+                            <span class="value" id="network-min-stake">Loading...</span>
+                        </div>
+                        <div class="network-detail-item">
+                            <span class="label">Average Stake</span>
+                            <span class="value" id="network-average-stake">Loading...</span>
+                        </div>
+                        <div class="network-detail-item">
+                            <span class="label">AVG Stake per active nominator</span>
+                            <span class="value" id="network-avg-stake-account">Loading...</span>
+                        </div>
+                        <div class="network-detail-item">
+                            <span class="label">Total bonding</span>
+                            <span class="value" id="network-total-bonding">Loading...</span>
+                        </div>
+                        <div class="network-detail-item">
+                            <span class="label">Total Unbonding</span>
+                            <span class="value" id="network-total-unbonding">Loading...</span>
+                        </div>
+                        <div class="network-detail-item">
+                            <span class="label">LastEraRewards Total</span>
+                            <span class="value" id="network-last-era-rewards">Loading...</span>
                         </div>
                     </div>
                 </section>
@@ -230,6 +266,7 @@
                         </table>
                     </div>
                     <div style="text-align: center; padding: 20px;">
+                        <button id="load-older-financial-tx-btn" class="glass" style="padding: 10px 20px; color: var(--text-primary); border: 1px solid var(--brand-primary); background: rgba(229,0,122,0.1); border-radius: var(--radius-sm); cursor: pointer; display: none; transition: var(--transition-fast); margin-right: 10px;">Load Older 100 Financial Tx</button>
                         <button id="show-more-tx-btn" class="glass" style="padding: 10px 20px; color: var(--text-primary); border: 1px solid var(--border-color); background: rgba(255,255,255,0.05); border-radius: var(--radius-sm); cursor: pointer; display: none; transition: var(--transition-fast);">Show More</button>
                     </div>
                 </div>
@@ -325,6 +362,43 @@
                     <div style="text-align:center; padding: 20px;">Fetching validator history...</div>
                 </div>
             </div>
+
+            <footer class="site-footer">
+                <p class="footer-description">The Polkadex Blockchain Explorer - providing real-time data and analytics for the Polkadex network.</p>
+                <div class="footer-groups">
+                    <div>
+                        <h3>Polkadex</h3>
+                        <a href="https://docs.polkadex.ee" target="_blank" rel="noopener">Overview</a>
+                        <a href="https://polkadex.ee/roadmap" target="_blank" rel="noopener">Roadmap</a>
+                        <a href="https://polkadex.ee/tokeneconomics" target="_blank" rel="noopener">Token Economics</a>
+                    </div>
+                    <div>
+                        <h3>Products</h3>
+                        <a href="https://polkadex.ee/orderbook" target="_blank" rel="noopener">Orderbook</a>
+                        <a href="https://polkadex.ee/polkapool" target="_blank" rel="noopener">Polkapool AMM</a>
+                        <a href="https://polkadex.medium.com/thea-bridge" target="_blank" rel="noopener">THEA Bridge</a>
+                    </div>
+                    <div>
+                        <h3>Resources</h3>
+                        <a href="https://docs.polkadex.ee" target="_blank" rel="noopener">Docs</a>
+                        <a href="https://github.com/Polkadex-Substrate" target="_blank" rel="noopener">Github Repository</a>
+                        <a href="https://www.youtube.com/c/Polkadex" target="_blank" rel="noopener">Tutorials</a>
+                    </div>
+                    <div>
+                        <h3>Company</h3>
+                        <a href="https://polkadex.ee/about" target="_blank" rel="noopener">About Us</a>
+                        <a href="https://polkadex.ee/partners" target="_blank" rel="noopener">Partners</a>
+                        <a href="https://polkadex.ee/brand-assets" target="_blank" rel="noopener">Brand Assets</a>
+                    </div>
+                </div>
+                <div class="footer-bottom">
+                    <span>Copyright &copy; 2026 Polkadex, Inc.</span>
+                    <div class="footer-legal">
+                        <a href="https://github.com/Polkadex-Substrate/Docs/blob/master/Polkadex_Terms_of_Use.pdf" target="_blank" rel="noopener">Terms</a>
+                        <a href="https://github.com/Polkadex-Substrate/Docs/blob/master/Polkadex_Privacy_Policy.pdf" target="_blank" rel="noopener">Privacy</a>
+                    </div>
+                </div>
+            </footer>
 
         </main>
     </div>
