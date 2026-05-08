@@ -22,7 +22,7 @@ const VALIDATOR_TRIGGERS_CACHE_FILE = path.join(DATA_DIR, 'validator_triggers_ca
 const CACHE_DEFAULTS = new Map([
     [CACHE_FILE, { validators: [], lastSync: 0, status: 'Initializing' }],
     [HOLDERS_CACHE_FILE, { holders: [], lastSync: 0, status: 'Initializing' }],
-    [TX_CACHE_FILE, { transactions: [], lastSync: 0, status: 'Initializing' }],
+    [TX_CACHE_FILE, { transactions: [], lastSync: 0, status: 'Initializing', latestScannedBlock: 0, oldestScannedBlock: 0, scannedBlocks: 0, scannerVersion: 0 }],
     [BLOCKS_CACHE_FILE, { blocks: [], lastSync: 0, status: 'Initializing' }],
     [EVENTS_CACHE_FILE, { events: [], lastSync: 0, status: 'Initializing' }],
     [VALIDATOR_HISTORY_CACHE_FILE, {}],
@@ -32,6 +32,12 @@ const CACHE_DEFAULTS = new Map([
 const FIVE_MINUTES = 5 * 60 * 1000;
 const THIRTY_MINUTES = 30 * 60 * 1000;
 const RECENT_SYNC_INTERVAL = 12 * 1000;
+const TX_CACHE_LIMIT = readPositiveInteger(process.env.TX_CACHE_LIMIT, 500);
+const TX_INITIAL_SCAN_BLOCKS = readPositiveInteger(process.env.TX_INITIAL_SCAN_BLOCKS, 20000);
+const TX_OLDER_SCAN_BLOCKS = readPositiveInteger(process.env.TX_OLDER_SCAN_BLOCKS, TX_INITIAL_SCAN_BLOCKS);
+const TX_SCAN_BATCH_SIZE = readPositiveInteger(process.env.TX_SCAN_BATCH_SIZE, 25);
+const FINANCIAL_TX_SCANNER_VERSION = 2;
+const VALIDATOR_HISTORY_ERAS = readPositiveInteger(process.env.VALIDATOR_HISTORY_ERAS, 30);
 const DISPLAY_NAME_OVERRIDES = new Map([
     ['esoEt6uZ9vs23yW8aqTACLf1tViGpSLZKnhPXt5Nq7vQwHGew', 'Polkadex Treasury'],
     ['esm4teFDTrvy4VJ8msKTQmAywumeinGjzsrFzmTEB5FBiiekE', 'Gate.IO']
@@ -45,6 +51,11 @@ let isSyncingEvents = false;
 let isCrawlingAccount = {};
 let globalApi = null;
 const identityCache = new Map();
+
+function readPositiveInteger(value, fallback) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 // Ensure cache exists
 async function initCache() {
@@ -95,6 +106,24 @@ async function markCacheError(file, defaultData, err) {
 }
 
 function formatPDEX(balance) { return Number(balance) / 10 ** 12; }
+
+function getCommissionPercent(prefs) {
+    if (!prefs || !prefs.commission) return 0;
+    const commission = prefs.commission.unwrap ? prefs.commission.unwrap() : prefs.commission;
+    return (commission.toNumber() / 1000000000) * 100;
+}
+
+async function getEraValidatorStake(api, era, address) {
+    let totalStake = 0;
+    if (api.query.staking.erasStakersOverview) {
+        const overviewOpt = await api.query.staking.erasStakersOverview(era, address);
+        if (overviewOpt.isSome) totalStake = overviewOpt.unwrap().total;
+    } else if (api.query.staking.erasStakers) {
+        const exposure = await api.query.staking.erasStakers(era, address);
+        totalStake = exposure.total;
+    }
+    return totalStake && totalStake.unwrap ? totalStake.unwrap() : totalStake;
+}
 
 function formatIdentityName(rawStr) {
     if (!rawStr) return "Unknown";
@@ -190,6 +219,55 @@ function getExtrinsicAmountSummary(ex) {
     return { method, to, amount, numericAmount };
 }
 
+function buildFinancialTransaction(ex, index, blockNumber, timestamp, events) {
+    const summary = getExtrinsicAmountSummary(ex);
+    if (summary.amount === '-') return null;
+    return {
+        hash: ex.hash.toHex(),
+        from: ex.isSigned ? ex.signer.toString() : "System",
+        to: summary.to,
+        block: blockNumber,
+        method: summary.method,
+        amount: summary.amount,
+        numericAmount: summary.numericAmount,
+        value: '-',
+        status: getExtrinsicStatus(events, index),
+        timestamp
+    };
+}
+
+async function getBlockTimestampAt(blockHash) {
+    try {
+        return Number(await globalApi.query.timestamp.now.at(blockHash));
+    } catch (err) {
+        return Date.now();
+    }
+}
+
+function buildFinancialTransactionFromEvent(record, eventIndex, blockNumber, blockHash, timestamp) {
+    const event = record.event;
+    if (event.section !== 'balances' || event.method !== 'Transfer' || event.data.length < 3) return null;
+
+    const from = event.data[0].toString();
+    const to = event.data[1].toString();
+    const numericAmount = formatPDEX(event.data[2]);
+    return {
+        hash: `event-${blockNumber}-${eventIndex}`,
+        from,
+        to,
+        block: blockNumber,
+        method: 'balances.Transfer',
+        amount: `${numericAmount.toLocaleString('en-US', { maximumFractionDigits: 4 })} PDEX`,
+        numericAmount,
+        value: '-',
+        status: 'success',
+        timestamp,
+        eventIndex,
+        blockHash: blockHash.toString(),
+        eventDerived: true
+    };
+}
+
 function normalizeTransactionRecord(tx) {
     if (!tx || typeof tx !== 'object') return tx;
     if (typeof tx.amount === 'string' && tx.amount.includes('.') && (!tx.method || tx.value === 'System')) {
@@ -206,7 +284,114 @@ function normalizeTransactionRecord(tx) {
 }
 
 function isFinancialTransactionRecord(tx) {
-    return tx && tx.amount !== '-' && tx.amount !== undefined && tx.amount !== null;
+    if (!tx || tx.amount === '-' || tx.amount === undefined || tx.amount === null) return false;
+    if (tx.method) {
+        return [
+            'balances.transfer',
+            'balances.transferAllowDeath',
+            'balances.transferKeepAlive',
+            'balances.forceTransfer',
+            'balances.transferAll',
+            'balances.Transfer'
+        ].includes(tx.method);
+    }
+    return tx.amount === 'All' || (typeof tx.amount === 'string' && tx.amount.includes('PDEX'));
+}
+
+function getCachedFinancialTransactions(cacheData) {
+    return Array.isArray(cacheData.transactions)
+        ? cacheData.transactions.map(normalizeTransactionRecord).filter(isFinancialTransactionRecord)
+        : [];
+}
+
+function mergeFinancialTransactions(existingTransactions, incomingTransactions) {
+    const transactionsByHash = new Map();
+    for (const tx of existingTransactions) {
+        if (tx && tx.hash) transactionsByHash.set(tx.hash, tx);
+    }
+    for (const tx of incomingTransactions) {
+        if (!tx || !tx.hash) continue;
+        transactionsByHash.set(tx.hash, {
+            ...(transactionsByHash.get(tx.hash) || {}),
+            ...tx
+        });
+    }
+
+    return Array.from(transactionsByHash.values())
+        .filter(isFinancialTransactionRecord)
+        .sort((a, b) => {
+            const blockDiff = (Number(b.block) || 0) - (Number(a.block) || 0);
+            if (blockDiff !== 0) return blockDiff;
+            return (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0);
+        })
+        .slice(0, TX_CACHE_LIMIT);
+}
+
+async function scanFinancialTransactions({
+    startBlock,
+    stopBlock = 0,
+    limit = TX_CACHE_LIMIT,
+    maxBlocks = TX_INITIAL_SCAN_BLOCKS,
+    onProgress = null,
+    progressInterval = 100
+}) {
+    const transactions = [];
+    let scannedBlocks = 0;
+    let lastScannedBlock = startBlock;
+
+    for (let nextBlock = startBlock; nextBlock >= stopBlock && transactions.length < limit && scannedBlocks < maxBlocks;) {
+        const blockNumbers = [];
+        while (nextBlock >= stopBlock && blockNumbers.length < TX_SCAN_BATCH_SIZE && scannedBlocks + blockNumbers.length < maxBlocks) {
+            blockNumbers.push(nextBlock);
+            nextBlock--;
+        }
+        if (blockNumbers.length === 0) break;
+
+        const batchResults = await Promise.all(blockNumbers.map(async blockNumber => {
+            try {
+                const blockHash = await globalApi.rpc.chain.getBlockHash(blockNumber);
+                const [events, timestamp] = await Promise.all([
+                    globalApi.query.system.events.at(blockHash),
+                    getBlockTimestampAt(blockHash)
+                ]);
+                const blockTransactions = [];
+                events.forEach((record, eventIndex) => {
+                    const tx = buildFinancialTransactionFromEvent(record, eventIndex, blockNumber, blockHash, timestamp);
+                    if (tx) blockTransactions.push(tx);
+                });
+                return { blockNumber, transactions: blockTransactions };
+            } catch (err) {
+                console.warn(`Financial transaction scan skipped block ${blockNumber}:`, err.message);
+                return { blockNumber, transactions: [] };
+            }
+        }));
+
+        scannedBlocks += blockNumbers.length;
+        lastScannedBlock = blockNumbers[blockNumbers.length - 1];
+        for (const result of batchResults.sort((a, b) => b.blockNumber - a.blockNumber)) {
+            for (const tx of result.transactions) {
+                if (transactions.length >= limit) break;
+                transactions.push(tx);
+            }
+            if (transactions.length >= limit) break;
+        }
+
+        if (onProgress && (scannedBlocks % progressInterval === 0 || transactions.length >= limit)) {
+            await onProgress({
+                transactions,
+                scannedBlocks,
+                oldestScannedBlock: lastScannedBlock,
+                nextBeforeBlock: Math.max(lastScannedBlock, 0)
+            });
+        }
+    }
+
+    return {
+        transactions,
+        scannedBlocks,
+        nextBeforeBlock: scannedBlocks > 0 ? Math.max(lastScannedBlock, 0) : Math.max(startBlock, 0),
+        oldestScannedBlock: scannedBlocks > 0 ? lastScannedBlock : 0
+    };
 }
 
 async function applyDisplayNameOverridesToHolders(holders) {
@@ -222,6 +407,130 @@ async function applyDisplayNameOverridesToHolders(holders) {
     }));
 }
 
+async function syncValidatorHistory(activeEra, validators) {
+    if (!globalApi || !globalApi.query.staking.erasValidatorPrefs) return;
+
+    const historyData = {};
+    const triggerData = {};
+    const validatorAddresses = validators.map(address => address.toString());
+    const firstEra = Math.max(activeEra - VALIDATOR_HISTORY_ERAS + 1, 0);
+
+    for (let era = activeEra; era >= firstEra; era--) {
+        historyData[era] = {};
+        for (const address of validators) {
+            const addrStr = address.toString();
+            try {
+                const [prefs, totalStake] = await Promise.all([
+                    globalApi.query.staking.erasValidatorPrefs(era, address),
+                    getEraValidatorStake(globalApi, era, address)
+                ]);
+                const commission = getCommissionPercent(prefs);
+                const apy = 23.09 * (1 - (commission / 100));
+                historyData[era][addrStr] = {
+                    commission,
+                    stake: formatPDEX(totalStake),
+                    apy
+                };
+            } catch (err) {
+                console.warn(`Validator history skipped ${addrStr} era ${era}:`, err.message);
+            }
+        }
+    }
+
+    for (const address of validatorAddresses) {
+        const rows = [];
+        for (let era = firstEra; era <= activeEra; era++) {
+            if (historyData[era] && historyData[era][address]) {
+                rows.push({ era, ...historyData[era][address] });
+            }
+        }
+        for (let i = 1; i < rows.length; i++) {
+            const prev = rows[i - 1];
+            const current = rows[i];
+            if (prev.commission <= 50 && current.commission > 50) {
+                if (!triggerData[address]) triggerData[address] = [];
+                triggerData[address].push({
+                    era: current.era,
+                    prevCommission: prev.commission,
+                    newCommission: current.commission,
+                    timestamp: Date.now()
+                });
+            }
+        }
+    }
+
+    await Promise.all([
+        fs.writeFile(VALIDATOR_HISTORY_CACHE_FILE, JSON.stringify(historyData)),
+        fs.writeFile(VALIDATOR_TRIGGERS_CACHE_FILE, JSON.stringify(triggerData))
+    ]);
+}
+
+function getCommissionTriggers(history) {
+    const triggers = [];
+    const chronologicalHistory = [...history].sort((a, b) => a.era - b.era);
+    for (let i = 1; i < chronologicalHistory.length; i++) {
+        const prev = chronologicalHistory[i - 1];
+        const current = chronologicalHistory[i];
+        if (prev.commission <= 50 && current.commission > 50) {
+            triggers.push({
+                era: current.era,
+                prevCommission: prev.commission,
+                newCommission: current.commission,
+                timestamp: Date.now()
+            });
+        }
+    }
+    return triggers;
+}
+
+async function loadValidatorHistory(address) {
+    if (!globalApi || !globalApi.query.staking.erasValidatorPrefs) return { history: [], triggers: [] };
+
+    const activeEraOption = await globalApi.query.staking.activeEra();
+    const activeEra = activeEraOption.isSome ? activeEraOption.unwrap().index.toNumber() : 0;
+    const firstEra = Math.max(activeEra - VALIDATOR_HISTORY_ERAS + 1, 0);
+    const history = [];
+
+    for (let era = activeEra; era >= firstEra; era--) {
+        try {
+            const [prefs, totalStake] = await Promise.all([
+                globalApi.query.staking.erasValidatorPrefs(era, address),
+                getEraValidatorStake(globalApi, era, address)
+            ]);
+            const commission = getCommissionPercent(prefs);
+            history.push({
+                era,
+                commission,
+                stake: formatPDEX(totalStake),
+                apy: 23.09 * (1 - (commission / 100))
+            });
+        } catch (err) {
+            console.warn(`Validator history skipped ${address} era ${era}:`, err.message);
+        }
+    }
+
+    const triggers = getCommissionTriggers(history);
+    const [historyData, triggersCache] = await Promise.all([
+        readJsonCache(VALIDATOR_HISTORY_CACHE_FILE, CACHE_DEFAULTS.get(VALIDATOR_HISTORY_CACHE_FILE)),
+        readJsonCache(VALIDATOR_TRIGGERS_CACHE_FILE, CACHE_DEFAULTS.get(VALIDATOR_TRIGGERS_CACHE_FILE))
+    ]);
+    for (const row of history) {
+        if (!historyData[row.era]) historyData[row.era] = {};
+        historyData[row.era][address] = {
+            commission: row.commission,
+            stake: row.stake,
+            apy: row.apy
+        };
+    }
+    triggersCache[address] = triggers;
+    await Promise.all([
+        fs.writeFile(VALIDATOR_HISTORY_CACHE_FILE, JSON.stringify(historyData)),
+        fs.writeFile(VALIDATOR_TRIGGERS_CACHE_FILE, JSON.stringify(triggersCache))
+    ]);
+
+    return { history, triggers };
+}
+
 // --- FALLBACK LIST ENDPOINTS ---
 app.get('/api/validators', async (req, res) => { try { res.json(await readJsonCache(CACHE_FILE, CACHE_DEFAULTS.get(CACHE_FILE))); } catch (err) { res.json(CACHE_DEFAULTS.get(CACHE_FILE)); } });
 app.get('/api/holders', async (req, res) => {
@@ -234,11 +543,33 @@ app.get('/api/holders', async (req, res) => {
 app.get('/api/transactions', async (req, res) => {
     try {
         const cacheData = await readJsonCache(TX_CACHE_FILE, CACHE_DEFAULTS.get(TX_CACHE_FILE));
-        cacheData.transactions = cacheData.transactions
-            .map(normalizeTransactionRecord)
-            .filter(isFinancialTransactionRecord);
+        cacheData.transactions = getCachedFinancialTransactions(cacheData);
         res.json(cacheData);
     } catch (err) { res.json(CACHE_DEFAULTS.get(TX_CACHE_FILE)); }
+});
+app.get('/api/transactions/older', async (req, res) => {
+    if (!globalApi) return res.status(500).json({ error: 'API not ready' });
+    const limit = Math.min(parseInt(req.query.limit || '100', 10) || 100, 100);
+    const maxBlocks = Math.min(readPositiveInteger(req.query.maxBlocks, TX_OLDER_SCAN_BLOCKS), 100000);
+    try {
+        const latestHeader = await globalApi.rpc.chain.getHeader();
+        const latestBlock = latestHeader.number.toNumber();
+        const beforeBlock = Math.min(parseInt(req.query.beforeBlock || latestBlock + 1, 10) || latestBlock + 1, latestBlock + 1);
+        const scan = await scanFinancialTransactions({
+            startBlock: Math.max(beforeBlock - 1, 0),
+            limit,
+            maxBlocks
+        });
+
+        res.json({
+            transactions: scan.transactions,
+            nextBeforeBlock: scan.nextBeforeBlock,
+            scannedBlocks: scan.scannedBlocks,
+            status: 'Synced'
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 app.get('/api/blocks', async (req, res) => { try { res.json(await readJsonCache(BLOCKS_CACHE_FILE, CACHE_DEFAULTS.get(BLOCKS_CACHE_FILE))); } catch (err) { res.json(CACHE_DEFAULTS.get(BLOCKS_CACHE_FILE)); } });
 app.get('/api/events', async (req, res) => { try { res.json(await readJsonCache(EVENTS_CACHE_FILE, CACHE_DEFAULTS.get(EVENTS_CACHE_FILE))); } catch (err) { res.json(CACHE_DEFAULTS.get(EVENTS_CACHE_FILE)); } });
@@ -329,6 +660,13 @@ app.get('/api/validator/:address', async (req, res) => {
             if (triggersCache[address]) triggers = triggersCache[address].sort((a, b) => b.era - a.era);
         } catch (e) { }
 
+        if (history.length < VALIDATOR_HISTORY_ERAS) {
+            const loadedHistory = await loadValidatorHistory(address);
+            history.length = 0;
+            history.push(...loadedHistory.history);
+            triggers = loadedHistory.triggers.sort((a, b) => b.era - a.era);
+        }
+
         res.json({ address: address, identity: identity, controller: controller, history: history, triggers: triggers });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -403,24 +741,16 @@ async function syncData() {
         for (const address of validators) {
             const addrStr = address.toString();
             const name = await getIdentity(globalApi, address);
-            let totalStake = 0;
-
-            if (globalApi.query.staking.erasStakersOverview) {
-                const overviewOpt = await globalApi.query.staking.erasStakersOverview(activeEra, address);
-                if (overviewOpt.isSome) totalStake = overviewOpt.unwrap().total;
-            } else if (globalApi.query.staking.erasStakers) {
-                const exposure = await globalApi.query.staking.erasStakers(activeEra, address);
-                totalStake = exposure.total;
-            }
-            totalStake = totalStake.unwrap ? totalStake.unwrap() : totalStake;
-
-            const prefs = await globalApi.query.staking.validators(address);
-            let rawCommission = prefs.commission ? (prefs.commission.unwrap ? prefs.commission.unwrap().toNumber() : prefs.commission.toNumber()) : 0;
-            const commissionPct = (rawCommission / 1000000000) * 100;
+            const [totalStake, prefs] = await Promise.all([
+                getEraValidatorStake(globalApi, activeEra, address),
+                globalApi.query.staking.validators(address)
+            ]);
+            const commissionPct = getCommissionPercent(prefs);
             const currentApy = 23.09 * (1 - (commissionPct / 100));
 
             validatorData.push({ address: addrStr, name: name, totalStake: formatPDEX(totalStake), commission: commissionPct, realApy: currentApy, avg30DayApy: currentApy });
         }
+        await syncValidatorHistory(activeEra, validators);
         await fs.writeFile(CACHE_FILE, JSON.stringify({ validators: validatorData, totalCount: validators.length, lastSync: Date.now(), status: 'Synced' }));
     } catch (err) {
         console.error("Validator sync error:", err);
@@ -496,51 +826,51 @@ async function syncTransactions() {
     if (isSyncingTx || !globalApi) return;
     isSyncingTx = true;
     try {
-        let cacheData = { transactions: [], status: 'Syncing' };
-        cacheData = await readJsonCache(TX_CACHE_FILE, CACHE_DEFAULTS.get(TX_CACHE_FILE));
-        let currentHash = await globalApi.rpc.chain.getBlockHash();
-        let blocksSearched = 0;
-        const newTransactions = cacheData.transactions
-            ? cacheData.transactions.map(normalizeTransactionRecord).filter(isFinancialTransactionRecord)
-            : [];
+        const cacheData = await readJsonCache(TX_CACHE_FILE, CACHE_DEFAULTS.get(TX_CACHE_FILE));
+        const latestHeader = await globalApi.rpc.chain.getHeader();
+        const latestBlock = latestHeader.number.toNumber();
+        const cachedTransactions = getCachedFinancialTransactions(cacheData);
+        const latestScannedBlock = Number(cacheData.latestScannedBlock) || 0;
+        const needsInitialCrawl = latestScannedBlock === 0 || cacheData.scannerVersion !== FINANCIAL_TX_SCANNER_VERSION;
+        const previousScannedBlocks = Number(cacheData.scannedBlocks) || 0;
+        let scan = { transactions: [], scannedBlocks: 0, oldestScannedBlock: Number(cacheData.oldestScannedBlock) || 0 };
 
-        while (blocksSearched < 50) {
-            try {
-                const signedBlock = await globalApi.rpc.chain.getBlock(currentHash);
-                const allEvents = await globalApi.query.system.events.at(currentHash);
-                const blockNumber = signedBlock.block.header.number.toNumber();
-                const timestamp = getBlockTimestamp(signedBlock);
+        cacheData.status = 'Syncing';
+        cacheData.transactions = cachedTransactions;
+        await fs.writeFile(TX_CACHE_FILE, JSON.stringify(cacheData));
 
-                signedBlock.block.extrinsics.forEach((ex, index) => {
-                    const hash = ex.hash.toHex();
-                    const summary = getExtrinsicAmountSummary(ex);
-                    if (summary.amount === '-') return;
-                    const txData = {
-                        hash,
-                        from: ex.isSigned ? ex.signer.toString() : "System",
-                        to: summary.to,
-                        block: blockNumber,
-                        method: summary.method,
-                        amount: summary.amount,
-                        numericAmount: summary.numericAmount,
-                        value: '-',
-                        status: getExtrinsicStatus(allEvents, index),
-                        timestamp: timestamp
-                    };
-                    const existingTx = newTransactions.find(t => t.hash === hash);
-                    if (existingTx) Object.assign(existingTx, txData);
-                    else newTransactions.push(txData);
-                });
-                currentHash = signedBlock.block.header.parentHash;
-            } catch (e) {
-                console.warn("Transaction crawler stopped early:", e.message);
-                break;
-            }
-            blocksSearched++;
+        if (needsInitialCrawl) {
+            scan = await scanFinancialTransactions({
+                startBlock: latestBlock,
+                limit: TX_CACHE_LIMIT,
+                maxBlocks: TX_INITIAL_SCAN_BLOCKS,
+                onProgress: async progress => {
+                    cacheData.transactions = mergeFinancialTransactions(cachedTransactions, progress.transactions);
+                    cacheData.status = 'Syncing';
+                    cacheData.oldestScannedBlock = progress.oldestScannedBlock;
+                    cacheData.scannedBlocks = previousScannedBlocks + progress.scannedBlocks;
+                    await fs.writeFile(TX_CACHE_FILE, JSON.stringify(cacheData));
+                }
+            });
+        } else if (latestBlock > latestScannedBlock) {
+            const blocksToScan = latestBlock - latestScannedBlock;
+            scan = await scanFinancialTransactions({
+                startBlock: latestBlock,
+                stopBlock: latestScannedBlock + 1,
+                limit: TX_CACHE_LIMIT,
+                maxBlocks: blocksToScan
+            });
         }
-        cacheData.transactions = newTransactions.sort((a, b) => b.timestamp - a.timestamp).slice(0, 500);
+
+        cacheData.transactions = mergeFinancialTransactions(cachedTransactions, scan.transactions);
         cacheData.status = 'Synced';
         cacheData.lastSync = Date.now();
+        cacheData.latestScannedBlock = latestBlock;
+        cacheData.oldestScannedBlock = needsInitialCrawl
+            ? scan.oldestScannedBlock
+            : (Number(cacheData.oldestScannedBlock) || latestScannedBlock);
+        cacheData.scannedBlocks = previousScannedBlocks + scan.scannedBlocks;
+        cacheData.scannerVersion = FINANCIAL_TX_SCANNER_VERSION;
         delete cacheData.error;
         await fs.writeFile(TX_CACHE_FILE, JSON.stringify(cacheData));
     } catch (err) {
@@ -623,11 +953,11 @@ async function start() {
         console.log(`Backend indexer listening on port ${PORT}`);
     });
 
-    syncData();
-    syncHolders();
     syncBlocks();
     syncTransactions();
     syncEvents();
+    syncData();
+    syncHolders();
 
     // Recent-chain caches follow block production. Validator and holder rankings are heavier and run less often.
     setInterval(() => {
