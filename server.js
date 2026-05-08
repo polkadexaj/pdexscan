@@ -18,6 +18,7 @@ const EVENTS_CACHE_FILE = path.join(DATA_DIR, 'events_cache.json');
 const VALIDATOR_HISTORY_CACHE_FILE = path.join(DATA_DIR, 'validator_history_cache.json');
 const ACCOUNT_CACHE_FILE = path.join(DATA_DIR, 'account_history_cache.json');
 const VALIDATOR_TRIGGERS_CACHE_FILE = path.join(DATA_DIR, 'validator_triggers_cache.json');
+const NETWORK_INFO_CACHE_FILE = path.join(DATA_DIR, 'network_info_cache.json');
 
 const CACHE_DEFAULTS = new Map([
     [CACHE_FILE, { validators: [], lastSync: 0, status: 'Initializing' }],
@@ -27,7 +28,8 @@ const CACHE_DEFAULTS = new Map([
     [EVENTS_CACHE_FILE, { events: [], lastSync: 0, status: 'Initializing' }],
     [VALIDATOR_HISTORY_CACHE_FILE, {}],
     [ACCOUNT_CACHE_FILE, { accounts: {} }],
-    [VALIDATOR_TRIGGERS_CACHE_FILE, {}]
+    [VALIDATOR_TRIGGERS_CACHE_FILE, {}],
+    [NETWORK_INFO_CACHE_FILE, { networkInfo: null, lastSync: 0, status: 'Initializing' }]
 ]);
 const FIVE_MINUTES = 5 * 60 * 1000;
 const THIRTY_MINUTES = 30 * 60 * 1000;
@@ -113,6 +115,18 @@ function getCommissionPercent(prefs) {
     return (commission.toNumber() / 1000000000) * 100;
 }
 
+function average(values) {
+    return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+}
+
+function chunkArray(items, size) {
+    const chunks = [];
+    for (let index = 0; index < items.length; index += size) {
+        chunks.push(items.slice(index, index + size));
+    }
+    return chunks;
+}
+
 async function getEraValidatorStake(api, era, address) {
     let totalStake = 0;
     if (api.query.staking.erasStakersOverview) {
@@ -123,6 +137,94 @@ async function getEraValidatorStake(api, era, address) {
         totalStake = exposure.total;
     }
     return totalStake && totalStake.unwrap ? totalStake.unwrap() : totalStake;
+}
+
+async function getNetworkInfo() {
+    if (!globalApi) throw new Error('API not ready');
+    const cacheData = await readJsonCache(NETWORK_INFO_CACHE_FILE, CACHE_DEFAULTS.get(NETWORK_INFO_CACHE_FILE));
+    if (cacheData.networkInfo && Date.now() - cacheData.lastSync < FIVE_MINUTES) return cacheData;
+
+    const activeEraOption = await globalApi.query.staking.activeEra();
+    const activeEra = activeEraOption.isSome ? activeEraOption.unwrap().index.toNumber() : 0;
+    const previousEra = Math.max(activeEra - 1, 0);
+    const [
+        totalIssuanceRaw,
+        totalStakeRaw,
+        previousTotalStakeRaw,
+        validators,
+        counterForValidators,
+        counterForNominators,
+        lastEraRewardsRaw
+    ] = await Promise.all([
+        globalApi.query.balances.totalIssuance(),
+        globalApi.query.staking.erasTotalStake(activeEra),
+        globalApi.query.staking.erasTotalStake(previousEra),
+        globalApi.query.session.validators(),
+        globalApi.query.staking.counterForValidators(),
+        globalApi.query.staking.counterForNominators(),
+        globalApi.query.staking.erasValidatorReward(previousEra)
+    ]);
+
+    const stakes = [];
+    const commissions = [];
+    const activeNominators = new Set();
+
+    for (const chunk of chunkArray(validators, 25)) {
+        const results = await Promise.all(chunk.map(async address => {
+            const [prefs, exposure] = await Promise.all([
+                globalApi.query.staking.validators(address),
+                globalApi.query.staking.erasStakers(activeEra, address)
+            ]);
+            return { prefs, exposure };
+        }));
+        for (const { prefs, exposure } of results) {
+            stakes.push(formatPDEX(exposure.total));
+            commissions.push(getCommissionPercent(prefs));
+            for (const nomination of exposure.others) activeNominators.add(nomination.who.toString());
+        }
+    }
+
+    let totalUnlocking = 0;
+    const ledgerEntries = await globalApi.query.staking.ledger.entries();
+    for (const [, ledgerOpt] of ledgerEntries) {
+        const ledger = ledgerOpt.isSome ? ledgerOpt.unwrap() : ledgerOpt;
+        for (const unlocking of ledger.unlocking || []) {
+            totalUnlocking += formatPDEX(unlocking.value);
+        }
+    }
+
+    const totalIssuance = formatPDEX(totalIssuanceRaw);
+    const totalStake = formatPDEX(totalStakeRaw);
+    const previousTotalStake = formatPDEX(previousTotalStakeRaw);
+    const networkInfo = {
+        activeEra,
+        avgValidatorCommission: average(commissions),
+        validators: {
+            active: validators.length,
+            total: Number(counterForValidators)
+        },
+        nominators: {
+            active: activeNominators.size,
+            total: Number(counterForNominators)
+        },
+        maxActiveStake: Math.max(...stakes),
+        minStake: Math.min(...stakes),
+        averageStake: average(stakes),
+        avgStakePerAccount: activeNominators.size ? totalStake / activeNominators.size : 0,
+        totalBonding: totalStake,
+        totalBondingPercent: totalIssuance ? (totalStake / totalIssuance) * 100 : 0,
+        totalUnbonding: totalUnlocking,
+        totalStakeChange: totalStake - previousTotalStake,
+        lastEraRewardsTotal: formatPDEX(lastEraRewardsRaw)
+    };
+
+    const nextCacheData = {
+        networkInfo,
+        lastSync: Date.now(),
+        status: 'Synced'
+    };
+    await fs.writeFile(NETWORK_INFO_CACHE_FILE, JSON.stringify(nextCacheData));
+    return nextCacheData;
 }
 
 function formatIdentityName(rawStr) {
@@ -533,6 +635,14 @@ async function loadValidatorHistory(address) {
 
 // --- FALLBACK LIST ENDPOINTS ---
 app.get('/api/validators', async (req, res) => { try { res.json(await readJsonCache(CACHE_FILE, CACHE_DEFAULTS.get(CACHE_FILE))); } catch (err) { res.json(CACHE_DEFAULTS.get(CACHE_FILE)); } });
+app.get('/api/network-info', async (req, res) => {
+    try {
+        res.json(await getNetworkInfo());
+    } catch (err) {
+        const cacheData = await readJsonCache(NETWORK_INFO_CACHE_FILE, CACHE_DEFAULTS.get(NETWORK_INFO_CACHE_FILE));
+        res.json({ ...cacheData, status: 'Error', error: err.message });
+    }
+});
 app.get('/api/holders', async (req, res) => {
     try {
         const cacheData = await readJsonCache(HOLDERS_CACHE_FILE, CACHE_DEFAULTS.get(HOLDERS_CACHE_FILE));

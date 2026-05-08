@@ -13,6 +13,22 @@ function formatPDEX(balance) {
     return (Number(balance) / 10 ** 12).toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
+function formatNetworkNumber(value, maximumFractionDigits = 1) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return 'Loading...';
+    return number.toLocaleString('en-US', { maximumFractionDigits });
+}
+
+function setText(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.innerText = value;
+}
+
+function setHtml(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = value;
+}
+
 // DOM Elements
 const blocksListEl = document.getElementById('blocks-list');
 const transactionsListEl = document.getElementById('transactions-list');
@@ -23,7 +39,7 @@ const networkStatusText = document.querySelector('.network-status span');
 
 const issuanceEl = document.querySelector('.stat-card:nth-child(2) .stat-value');
 const stakeEl = document.querySelector('.stat-card:nth-child(3) .stat-value');
-const currentEraEl = document.querySelector('.info-item:nth-child(1) .value');
+const currentEraEl = document.getElementById('network-current-era');
 
 const validatorsListEl = document.getElementById('validators-list');
 const validatorCountEl = document.querySelector('.validator-count');
@@ -74,6 +90,7 @@ async function init() {
         statusIndicator.style.background = 'var(--success)';
 
         fetchNetworkStats(globalApi);
+        fetchNetworkInformation();
 
         // Fetch initial dashboard data so it isn't empty on load
         try {
@@ -133,6 +150,29 @@ async function fetchNetworkStats(api) {
     }
 }
 
+async function fetchNetworkInformation() {
+    try {
+        const response = await fetch('/api/network-info');
+        const data = await response.json();
+        if (!data.networkInfo) return;
+        const info = data.networkInfo;
+
+        setText('network-current-era', info.activeEra);
+        setText('network-validators', `${info.validators.active} / ${info.validators.total}`);
+        setText('network-nominators', `${info.nominators.active} / ${info.nominators.total}`);
+        setHtml('network-max-active-stake', `${formatNetworkNumber(info.maxActiveStake, 0)} <span class="unit">PDEX</span>`);
+        setText('network-avg-commission', `${formatNetworkNumber(info.avgValidatorCommission, 3)}%`);
+        setText('network-min-stake', `${formatNetworkNumber(info.minStake, 0)} PDEX`);
+        setText('network-average-stake', `${formatNetworkNumber(info.averageStake, 1)} PDEX`);
+        setText('network-avg-stake-account', `${formatNetworkNumber(info.avgStakePerAccount, 1)} PDEX`);
+        setText('network-total-bonding', `${formatNetworkNumber(info.totalBonding, 0)} PDEX / ${formatNetworkNumber(info.totalBondingPercent, 0)}%`);
+        setText('network-total-unbonding', `-${formatNetworkNumber(info.totalUnbonding, 0)} PDEX`);
+        setText('network-last-era-rewards', `${formatNetworkNumber(info.lastEraRewardsTotal, 0)} PDEX`);
+    } catch (err) {
+        console.error("Error fetching network information:", err);
+    }
+}
+
 function subscribeNewBlocks(api) {
     api.rpc.chain.subscribeNewHeads(async (header) => {
         const blockNumber = header.number.toNumber();
@@ -182,7 +222,7 @@ function subscribeNewBlocks(api) {
                 author = "Validator " + String(preRuntime.value.toHex()).substring(0, 8);
             }
 
-            const newBlock = {
+            const completedBlock = {
                 number: blockNumber,
                 hash: signedBlock.block.header.hash.toHex(),
                 author: author,
@@ -191,7 +231,7 @@ function subscribeNewBlocks(api) {
                 events: 0 // <--- FIX HERE
             };
 
-            blocks.unshift(newBlock);
+            blocks.unshift(completedBlock);
             if (blocks.length > 10) blocks.pop();
             renderBlocks();
 

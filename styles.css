@@ -355,6 +355,109 @@ h1, h2, h3 { font-weight: 600; }
     font-size: 1.1rem;
 }
 
+.network-details-section {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.section-heading h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+}
+
+.network-details-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+}
+
+.network-detail-item {
+    min-height: 118px;
+    border: 1px solid var(--border-color);
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: var(--radius-sm);
+    padding: 22px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 12px;
+}
+
+.network-detail-item .label {
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.network-detail-item .value {
+    color: var(--text-primary);
+    font-size: 1.35rem;
+    font-weight: 700;
+    line-height: 1.25;
+}
+
+.site-footer {
+    max-width: 1400px;
+    width: calc(100% - 64px);
+    margin: 24px auto 32px;
+    padding: 28px 32px;
+    border-top: 3px solid var(--brand-primary);
+    color: var(--text-secondary);
+}
+
+.footer-description {
+    color: var(--text-primary);
+    font-weight: 500;
+    margin-bottom: 24px;
+}
+
+.footer-groups {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 24px;
+    margin-bottom: 24px;
+}
+
+.footer-groups h3 {
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    margin-bottom: 10px;
+}
+
+.footer-groups a,
+.footer-legal a {
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 0.9rem;
+}
+
+.footer-groups a {
+    display: block;
+    margin: 8px 0;
+}
+
+.footer-groups a:hover,
+.footer-legal a:hover {
+    color: var(--brand-primary);
+}
+
+.footer-bottom {
+    border-top: 1px solid var(--border-color);
+    padding-top: 18px;
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    font-size: 0.85rem;
+}
+
+.footer-legal {
+    display: flex;
+    gap: 18px;
+}
+
 /* Lists Grid */
 .lists-grid {
     display: grid;
@@ -631,6 +734,16 @@ h1, h2, h3 { font-weight: 600; }
     }
     .network-info-bar {
         padding: 16px;
+    }
+    .network-detail-item {
+        min-height: auto;
+    }
+    .site-footer {
+        width: calc(100% - 32px);
+        padding: 24px 16px;
+    }
+    .footer-bottom {
+        flex-direction: column;
     }
     .list-header {
         padding: 16px;
