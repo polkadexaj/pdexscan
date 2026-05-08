@@ -185,11 +185,11 @@
                         <table class="holders-table validators-table">
                             <thead>
                                 <tr>
-                                    <th>Rank</th>
+                                    <th class="sortable-holder" data-sort="rank">Rank <i class='bx bx-sort'></i></th>
                                     <th>Address</th>
-                                    <th>Identity</th>
-                                    <th>Balance</th>
-                                    <th>Percentage</th>
+                                    <th class="sortable-holder" data-sort="name">Identity <i class='bx bx-sort'></i></th>
+                                    <th class="sortable-holder" data-sort="balance">Balance <i class='bx bx-sort'></i></th>
+                                    <th class="sortable-holder" data-sort="share">Percentage <i class='bx bx-sort'></i></th>
                                 </tr>
                             </thead>
                             <tbody id="holders-list">
@@ -216,7 +216,7 @@
                                 <tr>
                                     <th>Txn Hash</th>
                                     <th>From</th>
-                                    <th>To</th>
+                                    <th>To / Method</th>
                                     <th class="sortable-tx" data-sort="timestamp">Date <i class='bx bx-sort'></i></th>
                                     <th>Block</th>
                                     <th class="sortable-tx" data-sort="numericAmount">Amount <i class='bx bx-sort'></i></th>
