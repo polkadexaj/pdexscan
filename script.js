@@ -621,16 +621,21 @@ function renderFullEvents() {
     const toDisplay = fullEvents.slice(0, eventDisplayLimit);
 
     for (const ev of toDisplay) {
-        const shortHash = ev.hash.substring(0, 15) + '...';
+        const displayHash = ev.txHash || ev.hash;
+        const shortHash = displayHash.substring(0, 15) + '...';
         const dateObj = new Date(ev.timestamp);
         const actionStr = `${ev.section} -> ${ev.method}`;
         const identityStr = (ev.signerName && ev.signerName !== "Unknown") ? ev.signerName : ev.signerAddress;
+        const eventLink = ev.txHash
+            ? `<a href="#tx/${ev.block}/${ev.txHash}" class="item-link" style="font-size: 13px; color: var(--brand-secondary); opacity: 0.8;">tx: ${shortHash}</a>`
+            : `<span style="font-size: 13px; color: var(--text-secondary); opacity: 0.8;">event: ${shortHash}</span>`;
+        const statusColor = ev.status === 'failed' ? 'var(--error)' : 'var(--success)';
 
         html += `
             <div class="event-list-item">
                 <div>
                     <a href="#block/${ev.block}" class="item-link" style="display: block; font-size: 15px; margin-bottom: 5px;">${ev.block}</a>
-                    <a href="#tx/${ev.block}/${ev.hash}" class="item-link" style="font-size: 13px; color: var(--brand-secondary); opacity: 0.8;">tx: ${shortHash}</a>
+                    ${eventLink}
                 </div>
                 <div>
                     <div style="font-weight: 500; font-size: 14px; margin-bottom: 5px;">${actionStr}</div>
@@ -646,7 +651,7 @@ function renderFullEvents() {
                     ${dateObj.toISOString().replace('T', ' ').substring(0, 19)}(UTC)
                 </div>
                 <div>
-                    <span class="badge" style="background: var(--success); font-size: 11px;">${ev.status}</span>
+                    <span class="badge" style="background: ${statusColor}; font-size: 11px;">${ev.status}</span>
                 </div>
             </div>
         `;
@@ -786,7 +791,7 @@ async function performSearch(query) {
     }
 
     // Search Events (by hash, address, or block)
-    const matchingEvents = fullEvents.filter(e => e.hash.toLowerCase() === query.toLowerCase() || e.signerAddress.toLowerCase() === query.toLowerCase() || e.block.toString() === query);
+    const matchingEvents = fullEvents.filter(e => e.hash.toLowerCase() === query.toLowerCase() || (e.txHash && e.txHash.toLowerCase() === query.toLowerCase()) || e.signerAddress.toLowerCase() === query.toLowerCase() || e.block.toString() === query);
     if (matchingEvents.length > 0) {
         found = true;
         html += `<h3 style="margin-top: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">Matching Events</h3>`;
