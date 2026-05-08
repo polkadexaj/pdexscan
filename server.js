@@ -8,6 +8,7 @@ const app = express();
 app.use(cors());
 
 // Use dedicated data directory for Docker volumes
+const PORT = process.env.PORT || 3001;
 const DATA_DIR = path.join(process.cwd(), 'data');
 const CACHE_FILE = path.join(DATA_DIR, 'cache.json');
 const HOLDERS_CACHE_FILE = path.join(DATA_DIR, 'holders_cache.json');
@@ -30,6 +31,11 @@ const CACHE_DEFAULTS = new Map([
 ]);
 const FIVE_MINUTES = 5 * 60 * 1000;
 const THIRTY_MINUTES = 30 * 60 * 1000;
+const RECENT_SYNC_INTERVAL = 12 * 1000;
+const DISPLAY_NAME_OVERRIDES = new Map([
+    ['esoEt6uZ9vs23yW8aqTACLf1tViGpSLZKnhPXt5Nq7vQwHGew', 'Polkadex Treasury'],
+    ['esm4teFDTrvy4VJ8msKTQmAywumeinGjzsrFzmTEB5FBiiekE', 'Gate.IO']
+]);
 
 let isSyncing = false;
 let isSyncingHolders = false;
@@ -100,8 +106,22 @@ function formatIdentityName(rawStr) {
 
 async function getIdentity(api, address) {
     const cacheKey = address.toString();
-    if (identityCache.has(cacheKey)) return identityCache.get(cacheKey);
+    const hasOverride = DISPLAY_NAME_OVERRIDES.has(cacheKey);
+    if (!hasOverride && identityCache.has(cacheKey)) return identityCache.get(cacheKey);
 
+    const onChainName = await getOnChainIdentity(api, address);
+    if (onChainName !== "Unknown") {
+        identityCache.set(cacheKey, onChainName);
+        return onChainName;
+    }
+
+    const fallbackName = DISPLAY_NAME_OVERRIDES.get(cacheKey) || "Unknown";
+    if (!hasOverride) identityCache.set(cacheKey, fallbackName);
+    return fallbackName;
+}
+
+async function getOnChainIdentity(api, address) {
+    const cacheKey = address.toString();
     let name = "Unknown";
     try {
         const superOf = await api.query.identity.superOf(address);
@@ -125,7 +145,6 @@ async function getIdentity(api, address) {
     } catch (e) {
         console.warn(`Identity lookup failed for ${cacheKey}:`, e.message);
     }
-    identityCache.set(cacheKey, name);
     return name;
 }
 
@@ -142,10 +161,79 @@ function getExtrinsicStatus(events, index) {
     return txEvents.some(record => record.event.section === 'system' && record.event.method === 'ExtrinsicFailed') ? 'failed' : 'success';
 }
 
+function getExtrinsicMethod(ex) {
+    return `${ex.method.section}.${ex.method.method}`;
+}
+
+function getExtrinsicAmountSummary(ex) {
+    const method = getExtrinsicMethod(ex);
+    const args = ex.method.args;
+    let to = method;
+    let numericAmount = 0;
+    let amount = '-';
+
+    if (ex.method.section === 'balances') {
+        if (['transfer', 'transferAllowDeath', 'transferKeepAlive'].includes(ex.method.method) && args.length >= 2) {
+            to = args[0].toString();
+            numericAmount = formatPDEX(args[1]);
+            amount = `${numericAmount.toLocaleString('en-US', { maximumFractionDigits: 4 })} PDEX`;
+        } else if (ex.method.method === 'forceTransfer' && args.length >= 3) {
+            to = args[1].toString();
+            numericAmount = formatPDEX(args[2]);
+            amount = `${numericAmount.toLocaleString('en-US', { maximumFractionDigits: 4 })} PDEX`;
+        } else if (ex.method.method === 'transferAll' && args.length >= 1) {
+            to = args[0].toString();
+            amount = 'All';
+        }
+    }
+
+    return { method, to, amount, numericAmount };
+}
+
+function normalizeTransactionRecord(tx) {
+    if (!tx || typeof tx !== 'object') return tx;
+    if (typeof tx.amount === 'string' && tx.amount.includes('.') && (!tx.method || tx.value === 'System')) {
+        return {
+            ...tx,
+            method: tx.method || tx.amount,
+            to: tx.method || tx.amount,
+            amount: '-',
+            numericAmount: 0,
+            value: '-'
+        };
+    }
+    return tx;
+}
+
+async function applyDisplayNameOverridesToHolders(holders) {
+    return Promise.all(holders.map(async holder => {
+        if (!DISPLAY_NAME_OVERRIDES.has(holder.address)) return holder;
+        if (!globalApi) {
+            return {
+                ...holder,
+                name: holder.name && holder.name !== "Unknown" ? holder.name : DISPLAY_NAME_OVERRIDES.get(holder.address)
+            };
+        }
+        return { ...holder, name: await getIdentity(globalApi, holder.address) };
+    }));
+}
+
 // --- FALLBACK LIST ENDPOINTS ---
 app.get('/api/validators', async (req, res) => { try { res.json(await readJsonCache(CACHE_FILE, CACHE_DEFAULTS.get(CACHE_FILE))); } catch (err) { res.json(CACHE_DEFAULTS.get(CACHE_FILE)); } });
-app.get('/api/holders', async (req, res) => { try { res.json(await readJsonCache(HOLDERS_CACHE_FILE, CACHE_DEFAULTS.get(HOLDERS_CACHE_FILE))); } catch (err) { res.json(CACHE_DEFAULTS.get(HOLDERS_CACHE_FILE)); } });
-app.get('/api/transactions', async (req, res) => { try { res.json(await readJsonCache(TX_CACHE_FILE, CACHE_DEFAULTS.get(TX_CACHE_FILE))); } catch (err) { res.json(CACHE_DEFAULTS.get(TX_CACHE_FILE)); } });
+app.get('/api/holders', async (req, res) => {
+    try {
+        const cacheData = await readJsonCache(HOLDERS_CACHE_FILE, CACHE_DEFAULTS.get(HOLDERS_CACHE_FILE));
+        cacheData.holders = await applyDisplayNameOverridesToHolders(cacheData.holders);
+        res.json(cacheData);
+    } catch (err) { res.json(CACHE_DEFAULTS.get(HOLDERS_CACHE_FILE)); }
+});
+app.get('/api/transactions', async (req, res) => {
+    try {
+        const cacheData = await readJsonCache(TX_CACHE_FILE, CACHE_DEFAULTS.get(TX_CACHE_FILE));
+        cacheData.transactions = cacheData.transactions.map(normalizeTransactionRecord);
+        res.json(cacheData);
+    } catch (err) { res.json(CACHE_DEFAULTS.get(TX_CACHE_FILE)); }
+});
 app.get('/api/blocks', async (req, res) => { try { res.json(await readJsonCache(BLOCKS_CACHE_FILE, CACHE_DEFAULTS.get(BLOCKS_CACHE_FILE))); } catch (err) { res.json(CACHE_DEFAULTS.get(BLOCKS_CACHE_FILE)); } });
 app.get('/api/events', async (req, res) => { try { res.json(await readJsonCache(EVENTS_CACHE_FILE, CACHE_DEFAULTS.get(EVENTS_CACHE_FILE))); } catch (err) { res.json(CACHE_DEFAULTS.get(EVENTS_CACHE_FILE)); } });
 
@@ -191,14 +279,16 @@ app.get('/api/extrinsic/:block/:txHash', async (req, res) => {
 
         const timestamp = getBlockTimestamp(signedBlock);
         const status = getExtrinsicStatus(allEvents, extIndex);
+        const summary = getExtrinsicAmountSummary(targetExt);
 
         res.json({
             hash: txHash,
             block: signedBlock.block.header.number.toNumber(),
             time: timestamp,
             event: `${targetExt.method.section} -> ${targetExt.method.method}`,
-            from: targetExt.signer ? targetExt.signer.toString() : "System",
-            to: targetExt.method.args[0] ? targetExt.method.args[0].toString() : "",
+            from: targetExt.isSigned ? targetExt.signer.toString() : "System",
+            to: summary.to,
+            amount: summary.amount,
             status: status,
             extrinsic: targetExt.toHuman(),
             events: txEvents.map(e => e.toHuman().event)
@@ -387,6 +477,7 @@ async function syncBlocks() {
         }
         cacheData.blocks = newBlocks.sort((a, b) => b.number - a.number).slice(0, 200);
         cacheData.status = 'Synced';
+        cacheData.lastSync = Date.now();
         delete cacheData.error;
         await fs.writeFile(BLOCKS_CACHE_FILE, JSON.stringify(cacheData));
     } catch (err) {
@@ -413,23 +504,23 @@ async function syncTransactions() {
                 const timestamp = getBlockTimestamp(signedBlock);
 
                 signedBlock.block.extrinsics.forEach((ex, index) => {
-                    if (ex.isSigned) {
-                        const hash = ex.hash.toHex();
-                        const txData = {
-                            hash,
-                            from: ex.signer.toString(),
-                            to: ex.method.args[0] ? ex.method.args[0].toString() : "System",
-                            block: blockNumber,
-                            amount: "Tx",
-                            numericAmount: 0,
-                            value: '0$',
-                            status: getExtrinsicStatus(allEvents, index),
-                            timestamp: timestamp
-                        };
-                        const existingTx = newTransactions.find(t => t.hash === hash);
-                        if (existingTx) Object.assign(existingTx, txData);
-                        else newTransactions.push(txData);
-                    }
+                    const hash = ex.hash.toHex();
+                    const summary = getExtrinsicAmountSummary(ex);
+                    const txData = {
+                        hash,
+                        from: ex.isSigned ? ex.signer.toString() : "System",
+                        to: summary.to,
+                        block: blockNumber,
+                        method: summary.method,
+                        amount: summary.amount,
+                        numericAmount: summary.numericAmount,
+                        value: '-',
+                        status: getExtrinsicStatus(allEvents, index),
+                        timestamp: timestamp
+                    };
+                    const existingTx = newTransactions.find(t => t.hash === hash);
+                    if (existingTx) Object.assign(existingTx, txData);
+                    else newTransactions.push(txData);
                 });
                 currentHash = signedBlock.block.header.parentHash;
             } catch (e) {
@@ -440,6 +531,7 @@ async function syncTransactions() {
         }
         cacheData.transactions = newTransactions.sort((a, b) => b.timestamp - a.timestamp).slice(0, 500);
         cacheData.status = 'Synced';
+        cacheData.lastSync = Date.now();
         delete cacheData.error;
         await fs.writeFile(TX_CACHE_FILE, JSON.stringify(cacheData));
     } catch (err) {
@@ -503,6 +595,7 @@ async function syncEvents() {
         }
         cacheData.events = newEvents.sort((a, b) => b.timestamp - a.timestamp).slice(0, 500);
         cacheData.status = 'Synced';
+        cacheData.lastSync = Date.now();
         delete cacheData.error;
         await fs.writeFile(EVENTS_CACHE_FILE, JSON.stringify(cacheData));
     } catch (err) {
@@ -517,8 +610,8 @@ async function start() {
     globalApi = await ApiPromise.create({ provider: wsProvider });
     console.log("Connected to Polkadex RPC");
 
-    app.listen(3001, () => {
-        console.log("Backend indexer listening on port 3001");
+    app.listen(PORT, () => {
+        console.log(`Backend indexer listening on port ${PORT}`);
     });
 
     syncData();
@@ -527,13 +620,13 @@ async function start() {
     syncTransactions();
     syncEvents();
 
-    // Sync lightweight recent-chain caches every 5 minutes. Holder ranking scans all accounts, so it runs less often.
+    // Recent-chain caches follow block production. Validator and holder rankings are heavier and run less often.
     setInterval(() => {
-        syncData();
         syncBlocks();
         syncTransactions();
         syncEvents();
-    }, FIVE_MINUTES);
+    }, RECENT_SYNC_INTERVAL);
+    setInterval(syncData, FIVE_MINUTES);
     setInterval(syncHolders, THIRTY_MINUTES);
 }
 

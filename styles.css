@@ -522,17 +522,20 @@ h1, h2, h3 { font-weight: 600; }
     background: rgba(255,255,255,0.05);
 }
 
-.validators-table .sortable {
+.validators-table .sortable,
+.validators-table .sortable-holder {
     cursor: pointer;
     user-select: none;
     transition: var(--transition-fast);
 }
 
-.validators-table .sortable:hover {
+.validators-table .sortable:hover,
+.validators-table .sortable-holder:hover {
     color: var(--brand-primary);
 }
 
-.validators-table .sortable i {
+.validators-table .sortable i,
+.validators-table .sortable-holder i {
     margin-left: 4px;
     font-size: 0.9em;
     color: var(--text-muted);

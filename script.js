@@ -55,6 +55,7 @@ let eventsFetched = false;
 let eventDisplayLimit = 50;
 let validatorsFetched = false;
 let globalApi = null;
+const RECENT_REFRESH_MS = 12000;
 
 async function init() {
     try {
@@ -102,6 +103,7 @@ async function init() {
 
         // Subscribe to new blocks
         subscribeNewBlocks(globalApi);
+        setInterval(refreshRecentViews, RECENT_REFRESH_MS);
 
     } catch (error) {
         console.error("Failed to connect to Polkadex node", error);
@@ -155,22 +157,22 @@ function subscribeNewBlocks(api) {
 
             // Extract transactions
             signedBlock.block.extrinsics.forEach((ex) => {
-                if (ex.isSigned) {
-                    const tx = {
-                        hash: ex.hash.toHex(),
-                        from: ex.signer.toString(),
-                        to: ex.method.args[0] ? ex.method.args[0].toString() : "System",
-                        block: blockNumber,
-                        amount: "Tx",
-                        numericAmount: 0,
-                        value: '0$',
-                        status: 'success',
-                        timestamp: Date.now()
-                    };
-                    transactions.unshift(tx);
-                    if (currentTxSort.field === null) sortTransactions(); // Keeps it sorted if needed
-                    if (transactions.length > 500) transactions.pop();
-                }
+                const summary = getLiveExtrinsicAmountSummary(ex);
+                const tx = {
+                    hash: ex.hash.toHex(),
+                    from: ex.isSigned ? ex.signer.toString() : "System",
+                    to: summary.to,
+                    block: blockNumber,
+                    method: summary.method,
+                    amount: summary.amount,
+                    numericAmount: summary.numericAmount,
+                    value: '-',
+                    status: 'success',
+                    timestamp: Date.now()
+                };
+                if (!transactions.find(existing => existing.hash === tx.hash)) transactions.unshift(tx);
+                if (currentTxSort.field === null) sortTransactions(); // Keeps it sorted if needed
+                if (transactions.length > 500) transactions.pop();
             });
             renderTransactions();
             if (document.querySelector('.transactions-page').style.display === 'flex') {
@@ -216,6 +218,35 @@ function subscribeNewBlocks(api) {
     });
 }
 
+function formatLivePDEX(balance) {
+    return Number(balance) / 10 ** 12;
+}
+
+function getLiveExtrinsicAmountSummary(ex) {
+    const method = `${ex.method.section}.${ex.method.method}`;
+    const args = ex.method.args || [];
+    let to = method;
+    let numericAmount = 0;
+    let amount = '-';
+
+    if (ex.method.section === 'balances') {
+        if (['transfer', 'transferAllowDeath', 'transferKeepAlive'].includes(ex.method.method) && args.length >= 2) {
+            to = args[0].toString();
+            numericAmount = formatLivePDEX(args[1]);
+            amount = `${numericAmount.toLocaleString('en-US', { maximumFractionDigits: 4 })} PDEX`;
+        } else if (ex.method.method === 'forceTransfer' && args.length >= 3) {
+            to = args[1].toString();
+            numericAmount = formatLivePDEX(args[2]);
+            amount = `${numericAmount.toLocaleString('en-US', { maximumFractionDigits: 4 })} PDEX`;
+        } else if (ex.method.method === 'transferAll' && args.length >= 1) {
+            to = args[0].toString();
+            amount = 'All';
+        }
+    }
+
+    return { method, to, amount, numericAmount };
+}
+
 // --- Rendering ---
 
 function renderBlocks() {
@@ -251,6 +282,7 @@ function renderTransactions() {
         return;
     }
     transactions.forEach((tx, index) => {
+        tx = normalizeTransactionRow(tx);
         const el = document.createElement('div');
         el.className = `list-item ${index === 0 ? 'animate-in' : ''}`;
 
@@ -265,10 +297,10 @@ function renderTransactions() {
                 <div class="item-details">
                     <a href="#tx/${tx.block}/${tx.hash}" class="item-title">${shortHash}</a>
                     <div class="item-sub">
-                        From: <a href="#account/${tx.from}" class="item-link">${shortFrom}</a>
+                        From: ${tx.from === 'System' ? shortFrom : `<a href="#account/${tx.from}" class="item-link">${shortFrom}</a>`}
                     </div>
                     <div class="item-sub">
-                        To/Method: <a href="#account/${tx.to}" class="item-link">${shortTo}</a>
+                        To/Method: ${tx.to === tx.amount ? shortTo : `<a href="#account/${tx.to}" class="item-link">${shortTo}</a>`}
                     </div>
                 </div>
             </div>
@@ -389,6 +421,7 @@ document.querySelectorAll('.sortable').forEach(th => {
 let holdersFetched = false;
 let currentHolders = [];
 let holderDisplayLimit = 50;
+let currentHolderSort = { field: 'rank', asc: true };
 
 async function fetchHolders() {
     if (holdersFetched) return;
@@ -408,6 +441,7 @@ async function fetchHolders() {
         if (holderCountEl) holderCountEl.innerText = `${data.holders.length} Top Holders`;
         currentHolders = data.holders;
         holdersFetched = true;
+        sortHolders();
         renderHolders();
 
     } catch (err) {
@@ -447,6 +481,40 @@ function renderHolders() {
     }
 }
 
+function sortHolders() {
+    if (!currentHolderSort.field) return;
+    currentHolders.sort((a, b) => {
+        let valA = a[currentHolderSort.field];
+        let valB = b[currentHolderSort.field];
+
+        if (typeof valA === 'string') valA = valA.toLowerCase();
+        if (typeof valB === 'string') valB = valB.toLowerCase();
+
+        if (valA < valB) return currentHolderSort.asc ? -1 : 1;
+        if (valA > valB) return currentHolderSort.asc ? 1 : -1;
+        return 0;
+    });
+}
+
+document.querySelectorAll('.sortable-holder').forEach(th => {
+    th.addEventListener('click', () => {
+        const field = th.getAttribute('data-sort');
+        if (currentHolderSort.field === field) {
+            currentHolderSort.asc = !currentHolderSort.asc;
+        } else {
+            currentHolderSort.field = field;
+            currentHolderSort.asc = field === 'rank' || field === 'name';
+        }
+
+        document.querySelectorAll('.sortable-holder i').forEach(i => i.className = 'bx bx-sort');
+        const icon = th.querySelector('i');
+        icon.className = currentHolderSort.asc ? 'bx bx-sort-up' : 'bx bx-sort-down';
+
+        sortHolders();
+        renderHolders();
+    });
+});
+
 let currentTxSort = { field: null, asc: false };
 
 function sortTransactions() {
@@ -460,11 +528,13 @@ function sortTransactions() {
     });
 }
 
-async function fetchTransactions() {
-    if (txFetched) return;
+async function fetchTransactions(force = false) {
+    if (txFetched && !force) return;
     try {
         if (!fullTransactionsListEl) return;
-        fullTransactionsListEl.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 20px;">Fetching from backend indexer...</td></tr>';
+        if (!force || transactions.length === 0) {
+            fullTransactionsListEl.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 20px;">Fetching from backend indexer...</td></tr>';
+        }
 
         const response = await fetch('/api/transactions');
         const data = await response.json();
@@ -491,7 +561,8 @@ function renderFullTransactions() {
     let html = '';
     const toDisplay = transactions.slice(0, txDisplayLimit);
 
-    for (const tx of toDisplay) {
+    for (const rawTx of toDisplay) {
+        const tx = normalizeTransactionRow(rawTx);
         const shortHash = tx.hash.substring(0, 10) + '...';
         const shortFrom = tx.from.substring(0, 8) + '...';
         let shortTo = tx.to.toString();
@@ -503,13 +574,13 @@ function renderFullTransactions() {
         html += `
             <tr>
                 <td class="address-cell"><a href="#tx/${tx.block}/${tx.hash}" class="item-link">${shortHash}</a></td>
-                <td><a href="#account/${tx.from}" class="item-link">${shortFrom}</a></td>
-                <td><a href="#account/${tx.to}" class="item-link">${shortTo}</a></td>
+                <td>${tx.from === 'System' ? shortFrom : `<a href="#account/${tx.from}" class="item-link">${shortFrom}</a>`}</td>
+                <td>${tx.to === tx.amount ? shortTo : `<a href="#account/${tx.to}" class="item-link">${shortTo}</a>`}</td>
                 <td style="color: var(--text-secondary);">${dateStr}</td>
                 <td><a href="#block/${tx.block}" class="item-link">${tx.block}</a></td>
                 <td style="font-weight: 500;">${tx.amount}</td>
                 <td style="color: var(--text-secondary);">${tx.value}</td>
-                <td><span class="badge" style="background: var(--success);">${tx.status}</span></td>
+                <td><span class="badge" style="background: ${tx.status === 'failed' ? 'var(--error)' : 'var(--success)'};">${tx.status}</span></td>
             </tr>
         `;
     }
@@ -527,11 +598,20 @@ function renderFullTransactions() {
     }
 }
 
-async function fetchBlocks() {
-    if (blocksFetched) return;
+function normalizeTransactionRow(tx) {
+    if (tx && typeof tx.amount === 'string' && tx.amount.includes('.') && (!tx.method || tx.value === 'System')) {
+        return { ...tx, method: tx.method || tx.amount, to: tx.method || tx.amount, amount: '-', numericAmount: 0, value: '-' };
+    }
+    return tx;
+}
+
+async function fetchBlocks(force = false) {
+    if (blocksFetched && !force) return;
     try {
         if (!fullBlocksListEl) return;
-        fullBlocksListEl.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 20px;">Fetching from backend indexer...</td></tr>';
+        if (!force || fullBlocks.length === 0) {
+            fullBlocksListEl.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 20px;">Fetching from backend indexer...</td></tr>';
+        }
 
         const response = await fetch('/api/blocks');
         const data = await response.json();
@@ -590,11 +670,52 @@ function renderFullBlocks() {
     }
 }
 
-async function fetchEvents() {
-    if (eventsFetched) return;
+async function refreshDashboardLists() {
+    try {
+        const [txRes, bRes] = await Promise.all([
+            fetch('/api/transactions').catch(() => null),
+            fetch('/api/blocks').catch(() => null)
+        ]);
+
+        if (txRes) {
+            const txData = await txRes.json();
+            if (Array.isArray(txData.transactions)) {
+                transactions = txData.transactions;
+                renderTransactions();
+            }
+        }
+        if (bRes) {
+            const bData = await bRes.json();
+            if (Array.isArray(bData.blocks)) {
+                blocks = bData.blocks.slice(0, 10);
+                renderBlocks();
+            }
+        }
+    } catch (err) {
+        console.error("Error refreshing dashboard lists:", err);
+    }
+}
+
+function activePageName() {
+    const activePage = Array.from(pageSections).find(page => page.style.display !== 'none');
+    return activePage ? activePage.getAttribute('data-page') : '';
+}
+
+function refreshRecentViews() {
+    const activePage = activePageName();
+    if (activePage === 'home' || activePage === 'dashboard') refreshDashboardLists();
+    if (activePage === 'transactions') fetchTransactions(true);
+    if (activePage === 'blocks') fetchBlocks(true);
+    if (activePage === 'events') fetchEvents(true);
+}
+
+async function fetchEvents(force = false) {
+    if (eventsFetched && !force) return;
     try {
         if (!fullEventsListEl) return;
-        fullEventsListEl.innerHTML = '<div style="text-align:center; padding: 20px;">Fetching from backend indexer...</div>';
+        if (!force || fullEvents.length === 0) {
+            fullEventsListEl.innerHTML = '<div style="text-align:center; padding: 20px;">Fetching from backend indexer...</div>';
+        }
 
         const response = await fetch('/api/events');
         const data = await response.json();
